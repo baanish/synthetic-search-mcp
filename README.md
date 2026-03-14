@@ -1,6 +1,6 @@
-# synthetic-search-mcp
+# @baanish/synthetic-search-mcp
 
-A minimal [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes Synthetic web search over stdio.
+A minimal [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes [Synthetic](https://synthetic.new) web search over stdio.
 
 It provides one MCP tool:
 
@@ -27,13 +27,13 @@ The server is designed for local MCP clients such as Claude Code, Codex CLI, Cur
 Use `npx`:
 
 ```bash
-npx -y synthetic-search-mcp
+npx -y @baanish/synthetic-search-mcp
 ```
 
 Or install globally:
 
 ```bash
-npm install -g synthetic-search-mcp
+npm install -g @baanish/synthetic-search-mcp
 synthetic-search-mcp
 ```
 
@@ -44,7 +44,7 @@ The server command is:
 ```json
 {
   "command": "npx",
-  "args": ["-y", "synthetic-search-mcp"],
+  "args": ["-y", "@baanish/synthetic-search-mcp"],
   "env": {
     "SYNTHETIC_API_KEY": "your_api_key_here"
   }
@@ -60,7 +60,7 @@ Add a project-level `.mcp.json` file:
   "mcpServers": {
     "synthetic-search": {
       "command": "npx",
-      "args": ["-y", "synthetic-search-mcp"],
+      "args": ["-y", "@baanish/synthetic-search-mcp"],
       "env": {
         "SYNTHETIC_API_KEY": "your_api_key_here"
       }
@@ -76,7 +76,7 @@ Add this to `~/.codex/config.toml`:
 ```toml
 [mcp_servers.synthetic-search]
 command = "npx"
-args = ["-y", "synthetic-search-mcp"]
+args = ["-y", "@baanish/synthetic-search-mcp"]
 env = { SYNTHETIC_API_KEY = "your_api_key_here" }
 ```
 
@@ -89,7 +89,7 @@ Add this to `.cursor/mcp.json` in your project or the equivalent Cursor MCP sett
   "mcpServers": {
     "synthetic-search": {
       "command": "npx",
-      "args": ["-y", "synthetic-search-mcp"],
+      "args": ["-y", "@baanish/synthetic-search-mcp"],
       "env": {
         "SYNTHETIC_API_KEY": "your_api_key_here"
       }
@@ -108,7 +108,7 @@ Add this to `.vscode/mcp.json`:
     "synthetic-search": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "synthetic-search-mcp"],
+      "args": ["-y", "@baanish/synthetic-search-mcp"],
       "env": {
         "SYNTHETIC_API_KEY": "your_api_key_here"
       }

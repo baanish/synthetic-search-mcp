@@ -197,7 +197,7 @@ async function searchSynthetic(query: string): Promise<SyntheticSearchResult[]> 
 }
 
 const server = new McpServer({
-  name: "synthetic-search-mcp",
+  name: "@baanish/synthetic-search-mcp",
   version: "1.0.0",
 });
 
