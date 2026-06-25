@@ -13,7 +13,9 @@ The server is designed for local MCP clients such as Claude Code, Codex CLI, Cur
 - One focused tool: `search`
 - Fresh web results from Synthetic's `/v2/search` API
 - Truncates extracted page text to about 2000 characters per result
-- Sanitizes malformed control characters before `JSON.parse`
+- Repairs malformed control characters when `JSON.parse` fails, instead of giving up
+- Bounded requests: a 30s timeout and a 10 MB response cap prevent hangs
+- Drops results whose URL is not `http(s):`
 - Reads credentials from `SYNTHETIC_API_KEY`
 - Runs over stdio for local MCP integrations
 
@@ -162,6 +164,17 @@ Run locally:
 ```bash
 SYNTHETIC_API_KEY=your_api_key_here npm run dev
 ```
+
+### Testing
+
+```bash
+npm run typecheck   # tsc --noEmit over src + tests
+npm test            # vitest: unit, integration, and fuzz tests
+```
+
+The suite includes an opt-in live smoke test that calls the real Synthetic API.
+It runs only when `SYNTHETIC_API_KEY` is available (copy `.env.example` to `.env`
+and add your key) and is skipped automatically otherwise — including in CI.
 
 ## License
 

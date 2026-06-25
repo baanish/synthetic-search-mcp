@@ -2,242 +2,52 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
-const SYNTHETIC_API_URL = "https://api.synthetic.new/v2/search";
-const MAX_TEXT_LENGTH = 2000;
+import {
+  SEARCH_TOOL_DESCRIPTION,
+  type SearchOptions,
+  runSearchTool,
+} from "./synthetic.js";
 
-type SyntheticSearchResult = {
-  url: string;
-  title: string;
-  text: string;
-  published: string | null;
-};
+export const SERVER_NAME = "@baanish/synthetic-search-mcp";
+export const SERVER_VERSION = "1.1.0";
 
-type SyntheticSearchResponse = {
-  results?: unknown;
-};
-
-class SyntheticSearchError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "SyntheticSearchError";
-  }
-}
-
-function getApiKey(): string {
-  const apiKey = process.env.SYNTHETIC_API_KEY?.trim();
-
-  if (!apiKey) {
-    throw new SyntheticSearchError(
-      "Missing SYNTHETIC_API_KEY environment variable. Set it before starting synthetic-search-mcp.",
-    );
-  }
-
-  return apiKey;
-}
-
-function truncateText(value: string, maxLength: number): string {
-  if (value.length <= maxLength) {
-    return value;
-  }
-
-  return `${value.slice(0, maxLength - 3)}...`;
-}
-
-function escapeJsonControlCharacter(charCode: number): string {
-  switch (charCode) {
-    case 0x08:
-      return "\\b";
-    case 0x09:
-      return "\\t";
-    case 0x0a:
-      return "\\n";
-    case 0x0c:
-      return "\\f";
-    case 0x0d:
-      return "\\r";
-    default:
-      return `\\u${charCode.toString(16).padStart(4, "0")}`;
-  }
-}
-
-function sanitizeJsonResponse(rawText: string): string {
-  let sanitized = "";
-  let inString = false;
-  let isEscaping = false;
-
-  for (const char of rawText) {
-    const charCode = char.charCodeAt(0);
-
-    if (!inString) {
-      if (char === "\"") {
-        inString = true;
-      }
-
-      sanitized += char;
-      continue;
-    }
-
-    if (isEscaping) {
-      sanitized += char;
-      isEscaping = false;
-      continue;
-    }
-
-    if (char === "\\") {
-      sanitized += char;
-      isEscaping = true;
-      continue;
-    }
-
-    if (char === "\"") {
-      sanitized += char;
-      inString = false;
-      continue;
-    }
-
-    if (charCode <= 0x1f) {
-      sanitized += escapeJsonControlCharacter(charCode);
-      continue;
-    }
-
-    sanitized += char;
-  }
-
-  return sanitized;
-}
-
-function parseSyntheticResponse(rawText: string): SyntheticSearchResponse {
-  try {
-    return JSON.parse(sanitizeJsonResponse(rawText)) as SyntheticSearchResponse;
-  } catch (error) {
-    throw new SyntheticSearchError(
-      `Synthetic API returned malformed JSON that could not be parsed: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
-}
-
-function normalizeResult(rawResult: unknown): SyntheticSearchResult | null {
-  if (typeof rawResult !== "object" || rawResult === null) {
-    return null;
-  }
-
-  const result = rawResult as Record<string, unknown>;
-  const url = typeof result.url === "string" ? result.url : null;
-  const title = typeof result.title === "string" ? result.title : null;
-  const text = typeof result.text === "string" ? result.text : null;
-  const published = typeof result.published === "string" ? result.published : null;
-
-  if (!url || !title || !text) {
-    return null;
-  }
-
-  return {
-    url,
-    title,
-    text: truncateText(text, MAX_TEXT_LENGTH),
-    published,
-  };
-}
-
-function formatApiError(status: number, bodyText: string): string {
-  const body = bodyText.trim();
-
-  if (!body) {
-    return `Synthetic API request failed with status ${status}.`;
-  }
-
-  try {
-    const parsed = parseSyntheticResponse(body) as Record<string, unknown>;
-    const message =
-      typeof parsed.error === "string"
-        ? parsed.error
-        : typeof parsed.message === "string"
-          ? parsed.message
-          : null;
-
-    if (message) {
-      return `Synthetic API request failed with status ${status}: ${message}`;
-    }
-  } catch {
-    // Fall back to raw text when the error body is not valid JSON.
-  }
-
-  return `Synthetic API request failed with status ${status}: ${truncateText(body, 400)}`;
-}
-
-async function searchSynthetic(query: string): Promise<SyntheticSearchResult[]> {
-  const response = await fetch(SYNTHETIC_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getApiKey()}`,
-    },
-    body: JSON.stringify({ query }),
+/**
+ * Build an MCP server exposing the `search` tool. `options` are forwarded to the
+ * search implementation, which lets tests inject a fetch stub / config without
+ * touching the network.
+ */
+export function createServer(options: SearchOptions = {}): McpServer {
+  const server = new McpServer({
+    name: SERVER_NAME,
+    version: SERVER_VERSION,
   });
 
-  const rawText = await response.text();
+  server.registerTool(
+    "search",
+    {
+      description: SEARCH_TOOL_DESCRIPTION,
+      inputSchema: {
+        query: z
+          .string()
+          .trim()
+          .min(1, "Query is required.")
+          .describe("The exact web search query to run."),
+      },
+      annotations: {
+        title: "Synthetic Web Search",
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ query }) => runSearchTool(query, options),
+  );
 
-  if (!response.ok) {
-    throw new SyntheticSearchError(formatApiError(response.status, rawText));
-  }
-
-  const parsed = parseSyntheticResponse(rawText);
-
-  if (!Array.isArray(parsed.results)) {
-    throw new SyntheticSearchError("Synthetic API response did not include a valid results array.");
-  }
-
-  return parsed.results
-    .map((result) => normalizeResult(result))
-    .filter((result): result is SyntheticSearchResult => result !== null);
+  return server;
 }
-
-const server = new McpServer({
-  name: "@baanish/synthetic-search-mcp",
-  version: "1.0.0",
-});
-
-server.tool(
-  "search",
-  "Search the public web with Synthetic. Use this when you need fresh web results with extracted page text for a specific query. Input only supports a single query string, and the response returns a small set of relevant results with URLs, titles, published dates, and truncated text snippets.",
-  {
-    query: z
-      .string()
-      .trim()
-      .min(1, "Query is required.")
-      .describe("The exact web search query to run."),
-  },
-  async ({ query }) => {
-    try {
-      const results = await searchSynthetic(query);
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(results, null, 2),
-          },
-        ],
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: message,
-          },
-        ],
-        isError: true,
-      };
-    }
-  },
-);
 
 async function main(): Promise<void> {
   if (!process.env.SYNTHETIC_API_KEY?.trim()) {
@@ -246,15 +56,39 @@ async function main(): Promise<void> {
     );
   }
 
+  const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
 
-main().catch((error) => {
-  console.error(
-    `synthetic-search-mcp failed to start: ${
-      error instanceof Error ? error.message : String(error)
-    }`,
-  );
-  process.exit(1);
-});
+/**
+ * True when this module is the program entry point. Both sides are resolved
+ * through `realpath` so the check still holds when the binary is invoked via a
+ * symlink — which is exactly how npm/npx run the `bin` (a node_modules/.bin
+ * symlink). A plain `import.meta.url === pathToFileURL(argv[1])` comparison
+ * fails there because Node resolves symlinks for the module URL but not for
+ * `process.argv[1]`. Returns false (so the server does not start) when invoked
+ * by `import`, where `argv[1]` is the test runner / importer.
+ */
+export function isMainModule(importMetaUrl: string, invokedPath: string | undefined): boolean {
+  if (!invokedPath) {
+    return false;
+  }
+
+  try {
+    return realpathSync(fileURLToPath(importMetaUrl)) === realpathSync(invokedPath);
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule(import.meta.url, process.argv[1])) {
+  main().catch((error) => {
+    console.error(
+      `synthetic-search-mcp failed to start: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    process.exit(1);
+  });
+}
