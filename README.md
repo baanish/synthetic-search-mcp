@@ -2,16 +2,19 @@
 
 A minimal [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes [Synthetic](https://synthetic.new) web search over stdio.
 
-It provides one MCP tool:
+It provides two MCP tools:
 
 - `search`: run a web search against Synthetic and return a small set of results with `url`, `title`, `published`, and a truncated page-text snippet.
+- `search_quota`: check the remaining hourly search quota (limit, used, remaining, and reset time) so an agent can stay within budget.
 
 The server is designed for local MCP clients such as Claude Code, Codex CLI, Cursor, and VS Code.
 
 ## Features
 
-- One focused tool: `search`
+- Two focused tools: `search` and `search_quota`
 - Fresh web results from Synthetic's `/v2/search` API
+- Quota visibility via Synthetic's `/v2/quotas` (search is capped per hour)
+- Clear `429` rate-limit errors, including `Retry-After` when provided
 - Truncates extracted page text to about 2000 characters per result
 - Repairs malformed control characters when `JSON.parse` fails, instead of giving up
 - Bounded requests: a 30s timeout and a 10 MB response cap prevent hangs
@@ -151,6 +154,36 @@ Notes:
 - Synthetic only supports a single `query` parameter.
 - Result text is truncated to keep MCP context manageable.
 - `published` may be `null` when the source does not provide a date.
+
+### `search_quota`
+
+Report the remaining Synthetic search quota. Takes no input.
+
+Output:
+
+```json
+{
+  "hourly": {
+    "limit": 250,
+    "requests": 32,
+    "remaining": 218,
+    "renewsAt": "2026-06-26T21:00:00.000Z"
+  },
+  "subscription": {
+    "limit": 750,
+    "requests": 10,
+    "remaining": 740,
+    "renewsAt": "2026-07-01T00:00:00.000Z"
+  }
+}
+```
+
+Notes:
+
+- Search is rate-limited per hour; `hourly` reflects the current window.
+- `remaining` is derived as `limit - requests` (clamped at 0).
+- A window is `null` if Synthetic does not report it.
+- Checking the quota does not count against your search limit.
 
 ## Development
 

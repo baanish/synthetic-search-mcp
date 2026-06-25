@@ -3,6 +3,8 @@
 
 export const SYNTHETIC_API_URL = "https://api.synthetic.new/v2/search";
 
+export const SYNTHETIC_QUOTAS_URL = "https://api.synthetic.new/v2/quotas";
+
 /** Maximum number of characters retained per result's extracted page text. */
 export const DEFAULT_MAX_TEXT_LENGTH = 2000;
 
@@ -22,6 +24,9 @@ export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 export const SEARCH_TOOL_DESCRIPTION =
   "Search the public web with Synthetic. Use this when you need fresh web results with extracted page text for a specific query. Input only supports a single query string, and the response returns a small set of relevant results with URLs, titles, published dates, and truncated text snippets.";
 
+export const SEARCH_QUOTA_TOOL_DESCRIPTION =
+  "Check how much Synthetic web search quota remains. Search is capped per hour; this returns the hourly search limit, requests used so far, remaining requests, and when the window resets (plus the subscription-period quota). Use it to decide whether you still have search budget before calling `search`. Checking the quota does not itself count against the limit.";
+
 export type SyntheticSearchResult = {
   url: string;
   title: string;
@@ -33,11 +38,26 @@ export type SyntheticSearchResponse = {
   results?: unknown;
 };
 
+/** A single rate-limit window (e.g. the hourly search quota). */
+export type QuotaWindow = {
+  limit: number;
+  requests: number;
+  remaining: number;
+  renewsAt: string | null;
+};
+
+export type SearchQuota = {
+  hourly: QuotaWindow | null;
+  subscription: QuotaWindow | null;
+};
+
 export type SearchOptions = {
   /** API key override; falls back to SYNTHETIC_API_KEY when omitted. */
   apiKey?: string;
   /** Endpoint override (used by tests). */
   baseUrl?: string;
+  /** Quotas endpoint override (used by tests). */
+  quotasUrl?: string;
   /** fetch implementation override (used by tests). */
   fetchImpl?: typeof fetch;
   /** Per-request timeout in milliseconds. */
@@ -294,57 +314,103 @@ function describeFetchError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export async function searchSynthetic(
-  query: string,
-  options: SearchOptions = {},
-): Promise<SyntheticSearchResult[]> {
-  const {
-    baseUrl = SYNTHETIC_API_URL,
-    fetchImpl = fetch,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-    maxTextLength = DEFAULT_MAX_TEXT_LENGTH,
-    maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES,
-  } = options;
-  const apiKey = resolveApiKey(options.apiKey);
+function formatRateLimitError(status: number, bodyText: string, headers: Headers): string {
+  const detail = formatApiError(status, bodyText);
+  const retryAfter = headers.get("retry-after");
+  if (retryAfter) {
+    return `${detail} Retry after ${retryAfter} seconds.`;
+  }
+  return `${detail} The Synthetic search quota is hourly; check remaining quota with the "search_quota" tool.`;
+}
 
+type SyntheticResponse = {
+  status: number;
+  ok: boolean;
+  headers: Headers;
+  rawText: string;
+};
+
+type RequestConfig = {
+  apiKey: string;
+  fetchImpl: typeof fetch;
+  timeoutMs: number;
+  maxResponseBytes: number;
+};
+
+// Single network seam shared by search and quota: applies the timeout, the
+// response-size guard, and uniform error wrapping. Returns the raw response;
+// callers decide how to interpret status and body.
+async function syntheticRequest(
+  method: "GET" | "POST",
+  url: string,
+  body: string | undefined,
+  config: RequestConfig,
+): Promise<SyntheticResponse> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
 
-  let response: Response;
-  let rawText: string;
   try {
-    response = await fetchImpl(baseUrl, {
-      method: "POST",
+    const response = await config.fetchImpl(url, {
+      method,
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        Authorization: `Bearer ${config.apiKey}`,
       },
-      body: JSON.stringify({ query }),
+      body,
       signal: controller.signal,
     });
 
     const declaredLength = Number(response.headers.get("content-length"));
-    if (Number.isFinite(declaredLength) && declaredLength > maxResponseBytes) {
+    if (Number.isFinite(declaredLength) && declaredLength > config.maxResponseBytes) {
       throw new SyntheticSearchError(
-        `Synthetic API response is too large (${declaredLength} bytes exceeds the ${maxResponseBytes}-byte limit).`,
+        `Synthetic API response is too large (${declaredLength} bytes exceeds the ${config.maxResponseBytes}-byte limit).`,
       );
     }
 
-    rawText = await response.text();
+    const rawText = await response.text();
+    return { status: response.status, ok: response.ok, headers: response.headers, rawText };
   } catch (error) {
     if (error instanceof SyntheticSearchError) {
       throw error;
     }
     if (controller.signal.aborted) {
-      throw new SyntheticSearchError(`Synthetic API request timed out after ${timeoutMs}ms.`);
+      throw new SyntheticSearchError(`Synthetic API request timed out after ${config.timeoutMs}ms.`);
     }
     throw new SyntheticSearchError(`Failed to reach the Synthetic API: ${describeFetchError(error)}`);
   } finally {
     clearTimeout(timer);
   }
+}
 
-  if (!response.ok) {
-    throw new SyntheticSearchError(formatApiError(response.status, rawText));
+function requestConfig(options: SearchOptions, apiKey: string): RequestConfig {
+  return {
+    apiKey,
+    fetchImpl: options.fetchImpl ?? fetch,
+    timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    maxResponseBytes: options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
+  };
+}
+
+export async function searchSynthetic(
+  query: string,
+  options: SearchOptions = {},
+): Promise<SyntheticSearchResult[]> {
+  const baseUrl = options.baseUrl ?? SYNTHETIC_API_URL;
+  const maxTextLength = options.maxTextLength ?? DEFAULT_MAX_TEXT_LENGTH;
+  const config = requestConfig(options, resolveApiKey(options.apiKey));
+
+  const { ok, status, headers, rawText } = await syntheticRequest(
+    "POST",
+    baseUrl,
+    JSON.stringify({ query }),
+    config,
+  );
+
+  if (!ok) {
+    if (status === 429) {
+      throw new SyntheticSearchError(formatRateLimitError(status, rawText, headers));
+    }
+    throw new SyntheticSearchError(formatApiError(status, rawText));
   }
 
   const parsed = parseSyntheticResponse(rawText);
@@ -356,6 +422,54 @@ export async function searchSynthetic(
   return parsed.results
     .map((result) => normalizeResult(result, maxTextLength))
     .filter((result): result is SyntheticSearchResult => result !== null);
+}
+
+function normalizeQuotaWindow(raw: unknown): QuotaWindow | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+
+  const window = raw as Record<string, unknown>;
+  // Number.isFinite (not `typeof === "number"`) so NaN and Infinity collapse the
+  // window to null: `1e999` is valid JSON that JSON.parse yields as Infinity,
+  // which would otherwise serialize back out as null and break remaining math.
+  const limit = Number.isFinite(window.limit) ? (window.limit as number) : null;
+  const requests = Number.isFinite(window.requests) ? (window.requests as number) : null;
+  if (limit === null || requests === null) {
+    return null;
+  }
+
+  const renewsAt = typeof window.renewsAt === "string" ? window.renewsAt : null;
+  return { limit, requests, remaining: Math.max(0, limit - requests), renewsAt };
+}
+
+/**
+ * Pull the search-relevant windows out of a /v2/quotas payload. Parsed
+ * defensively: unknown or malformed sections become null rather than throwing,
+ * since the quota shape is under active development upstream.
+ */
+export function normalizeQuota(parsed: unknown): SearchQuota {
+  const root = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  const search =
+    typeof root.search === "object" && root.search !== null ? (root.search as Record<string, unknown>) : {};
+
+  return {
+    hourly: normalizeQuotaWindow(search.hourly),
+    subscription: normalizeQuotaWindow(root.subscription),
+  };
+}
+
+export async function fetchSearchQuota(options: SearchOptions = {}): Promise<SearchQuota> {
+  const quotasUrl = options.quotasUrl ?? SYNTHETIC_QUOTAS_URL;
+  const config = requestConfig(options, resolveApiKey(options.apiKey));
+
+  const { ok, status, rawText } = await syntheticRequest("GET", quotasUrl, undefined, config);
+
+  if (!ok) {
+    throw new SyntheticSearchError(formatApiError(status, rawText));
+  }
+
+  return normalizeQuota(parseSyntheticResponse(rawText));
 }
 
 /**
@@ -372,6 +486,37 @@ export async function runSearchTool(query: string, options: SearchOptions = {}):
         {
           type: "text",
           text: JSON.stringify(results, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: message,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+/**
+ * Run the `search_quota` tool: fetch the current search quota and shape it (or
+ * an error) into an MCP tool response.
+ */
+export async function runQuotaTool(options: SearchOptions = {}): Promise<ToolResult> {
+  try {
+    const quota = await fetchSearchQuota(options);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(quota, null, 2),
         },
       ],
     };

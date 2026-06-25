@@ -76,6 +76,20 @@ describe("searchSynthetic", () => {
     await expect(searchSynthetic("q", { ...OPTS, fetchImpl })).rejects.toThrow(/status 502: Bad Gateway/);
   });
 
+  it("explains a 429 rate limit and points at the quota tool", async () => {
+    // Factory responder: each call gets a fresh Response (a body reads once).
+    const { fetchImpl } = stubFetch(() => jsonResponse({ error: "rate limited" }, { status: 429 }));
+    await expect(searchSynthetic("q", { ...OPTS, fetchImpl })).rejects.toThrow(/status 429: rate limited/);
+    await expect(searchSynthetic("q", { ...OPTS, fetchImpl })).rejects.toThrow(/search_quota/);
+  });
+
+  it("includes Retry-After on a 429 when the header is present", async () => {
+    const { fetchImpl } = stubFetch(
+      jsonResponse({ error: "slow down" }, { status: 429, headers: { "retry-after": "42" } }),
+    );
+    await expect(searchSynthetic("q", { ...OPTS, fetchImpl })).rejects.toThrow(/Retry after 42 seconds/);
+  });
+
   it("wraps network failures with the underlying cause", async () => {
     const fetchImpl = (async () => {
       const err = new TypeError("fetch failed");

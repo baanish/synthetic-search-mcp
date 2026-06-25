@@ -7,8 +7,10 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 import {
+  SEARCH_QUOTA_TOOL_DESCRIPTION,
   SEARCH_TOOL_DESCRIPTION,
   type SearchOptions,
+  runQuotaTool,
   runSearchTool,
 } from "./synthetic.js";
 
@@ -44,6 +46,19 @@ export function createServer(options: SearchOptions = {}): McpServer {
       },
     },
     async ({ query }) => runSearchTool(query, options),
+  );
+
+  server.registerTool(
+    "search_quota",
+    {
+      description: SEARCH_QUOTA_TOOL_DESCRIPTION,
+      annotations: {
+        title: "Synthetic Search Quota",
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async () => runQuotaTool(options),
   );
 
   return server;

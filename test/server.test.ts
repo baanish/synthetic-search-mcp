@@ -30,17 +30,38 @@ afterEach(async () => {
 });
 
 describe("createServer", () => {
-  it("registers the search tool with description and annotations", async () => {
+  it("registers the search and search_quota tools with annotations", async () => {
     active = await connect();
     const { tools } = await active.client.listTools();
 
-    expect(tools).toHaveLength(1);
-    const tool = tools[0];
-    expect(tool.name).toBe("search");
-    expect(tool.description).toBe(SEARCH_TOOL_DESCRIPTION);
-    expect(tool.annotations?.readOnlyHint).toBe(true);
-    expect(tool.annotations?.openWorldHint).toBe(true);
-    expect(tool.inputSchema.required).toContain("query");
+    expect(tools.map((t) => t.name).sort()).toEqual(["search", "search_quota"]);
+
+    const search = tools.find((t) => t.name === "search")!;
+    expect(search.description).toBe(SEARCH_TOOL_DESCRIPTION);
+    expect(search.annotations?.readOnlyHint).toBe(true);
+    expect(search.annotations?.openWorldHint).toBe(true);
+    expect(search.inputSchema.required).toContain("query");
+
+    const quota = tools.find((t) => t.name === "search_quota")!;
+    expect(quota.annotations?.readOnlyHint).toBe(true);
+  });
+
+  it("returns the search quota through the search_quota tool", async () => {
+    const { fetchImpl } = stubFetch(
+      jsonResponse({
+        subscription: { limit: 750, requests: 10, renewsAt: "2026-07-01T00:00:00.000Z" },
+        search: { hourly: { limit: 250, requests: 28, renewsAt: "2026-06-26T21:00:00.000Z" } },
+      }),
+    );
+    active = await connect({ fetchImpl });
+
+    const result = await active.client.callTool({ name: "search_quota", arguments: {} });
+
+    expect(result.isError).toBeFalsy();
+    const content = result.content as { type: string; text: string }[];
+    const quota = JSON.parse(content[0].text);
+    expect(quota.hourly).toEqual({ limit: 250, requests: 28, remaining: 222, renewsAt: "2026-06-26T21:00:00.000Z" });
+    expect(quota.subscription.remaining).toBe(740);
   });
 
   it("returns search results through the tool call", async () => {

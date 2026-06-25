@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `search_quota` tool: reports the remaining hourly search quota (and the
+  subscription-period quota) from Synthetic's `/v2/quotas` endpoint, so an agent
+  can check its budget before searching. Checking the quota does not count
+  against the search limit.
+- Explicit `429` rate-limit handling for `search`: a clear message that points
+  at `search_quota`, including `Retry-After` when the API provides it.
 - Per-request timeout (default 30s) so a hung or slow Synthetic API response can
   no longer block a tool call indefinitely.
 - Response-size guard: responses whose `Content-Length` exceeds 10 MB are
