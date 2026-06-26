@@ -5,7 +5,7 @@ A minimal [Model Context Protocol](https://modelcontextprotocol.io/) server that
 It provides two MCP tools:
 
 - `search`: run a web search against Synthetic and return a small set of results with `url`, `title`, `published`, and a truncated page-text snippet.
-- `search_quota`: check the remaining hourly search quota (limit, used, remaining, and reset time) so an agent can stay within budget.
+- `search_quota`: check the remaining hourly search quota (limit, requests, remaining, and reset time) so an agent can stay within budget.
 
 The server is designed for local MCP clients such as Claude Code, Codex CLI, Cursor, and VS Code.
 

@@ -90,6 +90,15 @@ describe("searchSynthetic", () => {
     await expect(searchSynthetic("q", { ...OPTS, fetchImpl })).rejects.toThrow(/Retry after 42 seconds/);
   });
 
+  it("does not label an HTTP-date Retry-After as seconds", async () => {
+    const { fetchImpl } = stubFetch(
+      jsonResponse({ error: "slow down" }, { status: 429, headers: { "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT" } }),
+    );
+    await expect(searchSynthetic("q", { ...OPTS, fetchImpl })).rejects.toThrow(
+      /Retry after Wed, 21 Oct 2026 07:28:00 GMT\.$/,
+    );
+  });
+
   it("wraps network failures with the underlying cause", async () => {
     const fetchImpl = (async () => {
       const err = new TypeError("fetch failed");

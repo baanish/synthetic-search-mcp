@@ -316,9 +316,12 @@ function describeFetchError(error: unknown): string {
 
 function formatRateLimitError(status: number, bodyText: string, headers: Headers): string {
   const detail = formatApiError(status, bodyText);
-  const retryAfter = headers.get("retry-after");
+  const retryAfter = headers.get("retry-after")?.trim();
   if (retryAfter) {
-    return `${detail} Retry after ${retryAfter} seconds.`;
+    // Retry-After (RFC 7231) is either delta-seconds or an HTTP-date; only label
+    // it "seconds" when it is a bare number.
+    const suffix = /^\d+$/.test(retryAfter) ? `Retry after ${retryAfter} seconds.` : `Retry after ${retryAfter}.`;
+    return `${detail} ${suffix}`;
   }
   return `${detail} The Synthetic search quota is hourly; check remaining quota with the "search_quota" tool.`;
 }
