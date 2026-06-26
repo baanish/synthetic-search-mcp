@@ -11,7 +11,12 @@ if (!process.env.SYNTHETIC_API_KEY) {
     for (const line of readFileSync(envPath, "utf8").split("\n")) {
       const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/);
       if (match && process.env[match[1]] === undefined) {
-        process.env[match[1]] = match[2];
+        const raw = match[2];
+        const unquoted =
+          (raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))
+            ? raw.slice(1, -1)
+            : raw;
+        process.env[match[1]] = unquoted;
       }
     }
   } catch {

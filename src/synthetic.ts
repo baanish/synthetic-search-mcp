@@ -12,12 +12,12 @@ export const DEFAULT_MAX_TEXT_LENGTH = 2000;
 export const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
- * Largest response body (declared via Content-Length) we are willing to read.
- * A misbehaving or compromised upstream could otherwise return an arbitrarily
- * large body and stall the event loop / exhaust memory in this single-process
- * stdio server. Combined with DEFAULT_TIMEOUT_MS this bounds the practical
- * worst case; a chunked response with no Content-Length is still bounded by the
- * timeout rather than by byte count.
+ * Largest response body we are willing to read. A misbehaving or compromised
+ * upstream could otherwise return an arbitrarily large body and stall the event
+ * loop / exhaust memory in this single-process stdio server. Enforced both by a
+ * Content-Length pre-check and by a streaming byte counter during the read, so a
+ * chunked, absent, or dishonestly-declared Content-Length is still bounded by
+ * byte count (not just by DEFAULT_TIMEOUT_MS).
  */
 export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
@@ -340,6 +340,40 @@ type RequestConfig = {
   maxResponseBytes: number;
 };
 
+// Read the response body as text while enforcing a hard byte ceiling during the
+// read. This bounds memory for chunked responses and dishonest/absent
+// Content-Length, which the header pre-check alone cannot catch.
+async function readResponseTextBounded(response: Response, maxBytes: number): Promise<string> {
+  const body = response.body;
+  if (!body) {
+    return "";
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new SyntheticSearchError(
+        `Synthetic API response is too large (exceeds the ${maxBytes}-byte limit).`,
+      );
+    }
+
+    text += decoder.decode(value, { stream: true });
+  }
+
+  return text + decoder.decode();
+}
+
 // Single network seam shared by search and quota: applies the timeout, the
 // response-size guard, and uniform error wrapping. Returns the raw response;
 // callers decide how to interpret status and body.
@@ -363,6 +397,7 @@ async function syntheticRequest(
       signal: controller.signal,
     });
 
+    // Fast path: reject an honestly-declared oversized body before reading it.
     const declaredLength = Number(response.headers.get("content-length"));
     if (Number.isFinite(declaredLength) && declaredLength > config.maxResponseBytes) {
       throw new SyntheticSearchError(
@@ -370,7 +405,9 @@ async function syntheticRequest(
       );
     }
 
-    const rawText = await response.text();
+    // Enforce the byte ceiling during the read too, for chunked / absent /
+    // dishonest Content-Length.
+    const rawText = await readResponseTextBounded(response, config.maxResponseBytes);
     return { status: response.status, ok: response.ok, headers: response.headers, rawText };
   } catch (error) {
     if (error instanceof SyntheticSearchError) {

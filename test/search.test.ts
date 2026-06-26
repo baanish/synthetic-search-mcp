@@ -119,6 +119,19 @@ describe("searchSynthetic", () => {
     await expect(searchSynthetic("q", { ...OPTS, fetchImpl, maxResponseBytes: 100 })).rejects.toThrow(/too large/);
   });
 
+  it("enforces the byte cap while streaming when Content-Length is absent", async () => {
+    // A streamed body has no Content-Length, so only the streaming guard applies.
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("x".repeat(2000)));
+        controller.enqueue(new TextEncoder().encode("x".repeat(2000)));
+        controller.close();
+      },
+    });
+    const { fetchImpl } = stubFetch(() => new Response(stream));
+    await expect(searchSynthetic("q", { ...OPTS, fetchImpl, maxResponseBytes: 1000 })).rejects.toThrow(/too large/);
+  });
+
   it("throws when no API key is available", async () => {
     const saved = process.env.SYNTHETIC_API_KEY;
     delete process.env.SYNTHETIC_API_KEY;

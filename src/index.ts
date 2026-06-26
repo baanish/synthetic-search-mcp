@@ -67,7 +67,7 @@ export function createServer(options: SearchOptions = {}): McpServer {
 async function main(): Promise<void> {
   if (!process.env.SYNTHETIC_API_KEY?.trim()) {
     console.error(
-      "synthetic-search-mcp: SYNTHETIC_API_KEY is not set. The server will start, but search calls will fail until the variable is configured.",
+      "synthetic-search-mcp: SYNTHETIC_API_KEY is not set. The server will start, but `search` and `search_quota` calls will fail until the variable is configured.",
     );
   }
 

@@ -31,13 +31,16 @@ export function hangingFetch(): typeof fetch {
   return ((_input: RequestInfo | URL, init?: RequestInit) =>
     new Promise((_resolve, reject) => {
       const signal = init?.signal;
-      if (signal) {
-        signal.addEventListener("abort", () => {
-          const err = new Error("The operation was aborted");
-          err.name = "AbortError";
-          reject(err);
-        });
+      const rejectAbort = () => {
+        const err = new Error("The operation was aborted");
+        err.name = "AbortError";
+        reject(err);
+      };
+      if (signal?.aborted) {
+        rejectAbort();
+        return;
       }
+      signal?.addEventListener("abort", rejectAbort, { once: true });
     })) as typeof fetch;
 }
 
