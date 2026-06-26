@@ -14,7 +14,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18, 20, 22]
+        # Node 18 is EOL and the dev toolchain (Vite 7, via Vitest) requires
+        # Node ^20.19 || >=22.12, so it is not a supported test target.
+        node-version: [20, 22]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:

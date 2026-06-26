@@ -24,7 +24,7 @@ The server is designed for local MCP clients such as Claude Code, Codex CLI, Cur
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 20+
 - A Synthetic API key in `SYNTHETIC_API_KEY`
 
 ## Installation

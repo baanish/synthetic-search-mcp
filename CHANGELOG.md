@@ -37,6 +37,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Raised the minimum Node.js version to 20 (`engines.node` `>=20`). Node 18 is
+  end-of-life and the dev/test toolchain (Vite 7, via Vitest) requires
+  Node `^20.19 || >=22.12`; the published runtime targets Node 20/22.
 - Migrated the tool registration from the deprecated `server.tool(...)` to
   `server.registerTool(...)`, adding `readOnlyHint`/`openWorldHint` annotations.
 - `JSON.parse` is now attempted directly first and only falls back to the
