@@ -222,24 +222,29 @@ tool output.
 
 `@modelcontextprotocol/sdk` is a production runtime dependency. It pulls in HTTP
 middleware packages (`hono`, `@hono/node-server`, `express` → `path-to-regexp`,
-`ajv` → `fast-uri`) that carry published CVEs. These advisories are
-**production-transitive** — they are present in the installed dependency tree
-shipped with this package — but this server uses **stdio only** and never invokes
+`ajv` → `fast-uri`, `qs`) that carry published CVEs. These advisories are
+**production-transitive**, but this server uses **stdio only** and never invokes
 the affected web-middleware code paths (serveStatic, cookies, JSX SSR, JWT
-verify, toSSG, cache, ipRestriction, and similar).
+verify, toSSG, cache, ipRestriction, query parsing, and similar). They are
+therefore unreachable here regardless of the installed version — and this
+unreachability, not a version pin, is what protects consumers of the published
+CLI.
 
-We upgrade the SDK and apply npm `overrides` to force patched versions where
-available. Remaining advisories after overrides:
+We keep the SDK on its latest release (the one lever that actually propagates to
+consumers) and apply npm `overrides` to pin patched transitive versions. Note
+that npm only honors `overrides` from the **root** project's `package.json`:
+they pin *this repository's* tree — so `npm ci`, CI, and the packed smoke test
+run on patched versions and `npm audit` stays clean — but npm **ignores them
+when this package is installed as a dependency or global CLI**. We deliberately
+do not ship an `npm-shrinkwrap.json` to force the tree onto consumers: it would
+freeze every transitive dependency at publish time (and could pin consumers to a
+*future* vulnerable version), a worse trade than relying on the unreachability
+above.
+
+Remaining local advisory after overrides:
 
 - **esbuild** (dev-only, via `tsx`): affects the esbuild development server on
   Windows only; not used at runtime and not published in the npm tarball.
-- **qs** (production-transitive via `express` in the MCP SDK): a `stringify`
-  edge case; unreachable because this stdio server never runs Express query
-  parsing or `qs.stringify` on untrusted input.
-
-Any other production-transitive advisories that cannot be forced to a patch
-without breaking the SDK are also considered unreachable on the stdio transport
-and near-zero real-world exploitability for this package.
 
 ## License
 
