@@ -532,6 +532,26 @@ export async function fetchSearchQuota(options: SearchOptions = {}): Promise<Sea
  * into an MCP tool response. Extracted from the server wiring so it can be
  * tested without a transport.
  */
+// Final redaction backstop at the tool boundary, where any error becomes MCP
+// output. Most error paths already redact, but this also covers messages that
+// echo upstream body content without redacting (e.g. JSON.parse's snippet in
+// parseSyntheticResponse) and any future path. Resolving the key here never
+// throws — when it is absent the Bearer/syn_ patterns still apply.
+function toErrorResult(error: unknown, options: SearchOptions): ToolResult {
+  const message = error instanceof Error ? error.message : String(error);
+  const apiKey = (options.apiKey ?? process.env.SYNTHETIC_API_KEY ?? "").trim();
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: redactSecrets(message, apiKey),
+      },
+    ],
+    isError: true,
+  };
+}
+
 export async function runSearchTool(query: string, options: SearchOptions = {}): Promise<ToolResult> {
   try {
     const results = await searchSynthetic(query, options);
@@ -545,17 +565,7 @@ export async function runSearchTool(query: string, options: SearchOptions = {}):
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: message,
-        },
-      ],
-      isError: true,
-    };
+    return toErrorResult(error, options);
   }
 }
 
@@ -576,16 +586,6 @@ export async function runQuotaTool(options: SearchOptions = {}): Promise<ToolRes
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: message,
-        },
-      ],
-      isError: true,
-    };
+    return toErrorResult(error, options);
   }
 }

@@ -10,7 +10,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Upstream API error bodies are redacted of the active API key and
   bearer-token-like material before they are returned over stdio, so a reflected
-  credential cannot leak through MCP tool output.
+  credential cannot leak through MCP tool output. Redaction is also applied as a
+  final backstop at the tool boundary, covering paths that echo upstream content
+  without redacting (e.g. the `JSON.parse` snippet surfaced by
+  `parseSyntheticResponse` for a malformed 2xx body).
 - Upgraded `@modelcontextprotocol/sdk` to 1.29.x and added npm `overrides` for
   patched transitive dependencies (`hono`, `@hono/node-server`, `path-to-regexp`,
   `fast-uri`, `ip-address`). Remaining production-transitive advisories that

@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { formatApiError } from "../src/synthetic.js";
+import { formatApiError, runSearchTool, searchSynthetic } from "../src/synthetic.js";
 import { redactSecrets } from "../src/redact.js";
-import { searchSynthetic } from "../src/synthetic.js";
 import { jsonResponse, stubFetch } from "./helpers.js";
 
 describe("redactSecrets", () => {
@@ -45,5 +44,21 @@ describe("searchSynthetic error redaction", () => {
       expect(message).toMatch(/\[redacted\]/);
       return true;
     });
+  });
+});
+
+describe("runSearchTool error redaction (tool-boundary backstop)", () => {
+  it("redacts key material echoed via a JSON.parse error on a malformed 2xx body", async () => {
+    const key = "syn_secret_key_value_abcdef123456";
+    // A 200 body that is not valid JSON and begins with key material. JSON.parse's
+    // error message echoes a short prefix of the body (which parseSyntheticResponse
+    // surfaces unredacted); the tool boundary must redact it before MCP output.
+    const { fetchImpl } = stubFetch(() => new Response(`${key} not valid json`, { status: 200 }));
+
+    const result = await runSearchTool("q", { apiKey: key, baseUrl: "https://api.test/search", fetchImpl });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).not.toContain("syn_secret");
+    expect(result.content[0].text).toContain("[redacted]");
   });
 });
