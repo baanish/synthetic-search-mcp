@@ -1,6 +1,8 @@
 // Core Synthetic search logic, kept free of import-time side effects so it can
 // be unit-tested directly and reused by the MCP server wiring in index.ts.
 
+import { redactSecrets } from "./redact.js";
+
 export const SYNTHETIC_API_URL = "https://api.synthetic.new/v2/search";
 
 export const SYNTHETIC_QUOTAS_URL = "https://api.synthetic.new/v2/quotas";
@@ -277,7 +279,7 @@ export function normalizeResult(
   };
 }
 
-export function formatApiError(status: number, bodyText: string): string {
+export function formatApiError(status: number, bodyText: string, apiKey = ""): string {
   const body = bodyText.trim();
 
   if (!body) {
@@ -294,13 +296,19 @@ export function formatApiError(status: number, bodyText: string): string {
           : null;
 
     if (message) {
-      return `Synthetic API request failed with status ${status}: ${message}`;
+      return `Synthetic API request failed with status ${status}: ${truncateText(
+        redactSecrets(message, apiKey),
+        400,
+      )}`;
     }
   } catch {
     // Fall back to raw text when the error body is not valid JSON.
   }
 
-  return `Synthetic API request failed with status ${status}: ${truncateText(body, 400)}`;
+  return `Synthetic API request failed with status ${status}: ${truncateText(
+    redactSecrets(body, apiKey),
+    400,
+  )}`;
 }
 
 function describeFetchError(error: unknown): string {
@@ -314,8 +322,13 @@ function describeFetchError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function formatRateLimitError(status: number, bodyText: string, headers: Headers): string {
-  const detail = formatApiError(status, bodyText);
+function formatRateLimitError(
+  status: number,
+  bodyText: string,
+  headers: Headers,
+  apiKey: string,
+): string {
+  const detail = formatApiError(status, bodyText, apiKey);
   const retryAfter = headers.get("retry-after")?.trim();
   if (retryAfter) {
     // Retry-After (RFC 7231) is either delta-seconds or an HTTP-date; only label
@@ -416,7 +429,9 @@ async function syntheticRequest(
     if (controller.signal.aborted) {
       throw new SyntheticSearchError(`Synthetic API request timed out after ${config.timeoutMs}ms.`);
     }
-    throw new SyntheticSearchError(`Failed to reach the Synthetic API: ${describeFetchError(error)}`);
+    throw new SyntheticSearchError(
+      redactSecrets(`Failed to reach the Synthetic API: ${describeFetchError(error)}`, config.apiKey),
+    );
   } finally {
     clearTimeout(timer);
   }
@@ -448,9 +463,9 @@ export async function searchSynthetic(
 
   if (!ok) {
     if (status === 429) {
-      throw new SyntheticSearchError(formatRateLimitError(status, rawText, headers));
+      throw new SyntheticSearchError(formatRateLimitError(status, rawText, headers, config.apiKey));
     }
-    throw new SyntheticSearchError(formatApiError(status, rawText));
+    throw new SyntheticSearchError(formatApiError(status, rawText, config.apiKey));
   }
 
   const parsed = parseSyntheticResponse(rawText);
@@ -506,7 +521,7 @@ export async function fetchSearchQuota(options: SearchOptions = {}): Promise<Sea
   const { ok, status, rawText } = await syntheticRequest("GET", quotasUrl, undefined, config);
 
   if (!ok) {
-    throw new SyntheticSearchError(formatApiError(status, rawText));
+    throw new SyntheticSearchError(formatApiError(status, rawText, config.apiKey));
   }
 
   return normalizeQuota(parseSyntheticResponse(rawText));

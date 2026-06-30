@@ -15,7 +15,7 @@ import {
 } from "./synthetic.js";
 
 export const SERVER_NAME = "@baanish/synthetic-search-mcp";
-export const SERVER_VERSION = "1.1.0";
+export const SERVER_VERSION = "2.0.0";
 
 /**
  * Build an MCP server exposing the `search` tool. `options` are forwarded to the

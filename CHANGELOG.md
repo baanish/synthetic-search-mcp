@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0]
+
+### Security
+
+- Upstream API error bodies are redacted of the active API key and
+  bearer-token-like material before they are returned over stdio, so a reflected
+  credential cannot leak through MCP tool output.
+- Upgraded `@modelcontextprotocol/sdk` to 1.29.x and added npm `overrides` for
+  patched transitive dependencies (`hono`, `@hono/node-server`, `path-to-regexp`,
+  `fast-uri`, `ip-address`). Remaining production-transitive advisories that
+  cannot be forced to a patch without breaking the SDK are documented in
+  README.md; they are unreachable on the stdio transport.
+
+### Changed
+
+- **Breaking:** minimum Node.js version is now 20 (`engines.node` `>=20`). Node
+  18 is end-of-life; CI runs on Node 20/22 only.
+
 ## [1.1.0]
 
 ### Added
@@ -22,7 +40,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `http:`/`https:` URL (e.g. `javascript:`, `data:`, `file:`) are dropped.
 - Test suite (vitest): unit, fetch-mocked integration, MCP in-memory transport,
   and seeded fuzz tests, plus an opt-in live API smoke test.
-- GitHub Actions CI running typecheck, build, and tests on Node 18/20/22.
+- GitHub Actions CI running typecheck, build, and tests on Node 20/22.
 - `.env.example` and a `typecheck`/`test` npm scripts.
 
 ### Fixed

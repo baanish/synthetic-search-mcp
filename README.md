@@ -209,6 +209,38 @@ The suite includes an opt-in live smoke test that calls the real Synthetic API.
 It runs only when `SYNTHETIC_API_KEY` is available (copy `.env.example` to `.env`
 and add your key) and is skipped automatically otherwise — including in CI.
 
+## Security
+
+### Credential redaction
+
+Upstream API error bodies are redacted of the active API key and bearer-token-like
+material before they are returned over stdio. This prevents a hostile or
+misconfigured upstream from reflecting the `SYNTHETIC_API_KEY` back through MCP
+tool output.
+
+### Transitive dependency advisories
+
+`@modelcontextprotocol/sdk` is a production runtime dependency. It pulls in HTTP
+middleware packages (`hono`, `@hono/node-server`, `express` → `path-to-regexp`,
+`ajv` → `fast-uri`) that carry published CVEs. These advisories are
+**production-transitive** — they are present in the installed dependency tree
+shipped with this package — but this server uses **stdio only** and never invokes
+the affected web-middleware code paths (serveStatic, cookies, JSX SSR, JWT
+verify, toSSG, cache, ipRestriction, and similar).
+
+We upgrade the SDK and apply npm `overrides` to force patched versions where
+available. Remaining advisories after overrides:
+
+- **esbuild** (dev-only, via `tsx`): affects the esbuild development server on
+  Windows only; not used at runtime and not published in the npm tarball.
+- **qs** (production-transitive via `express` in the MCP SDK): a `stringify`
+  edge case; unreachable because this stdio server never runs Express query
+  parsing or `qs.stringify` on untrusted input.
+
+Any other production-transitive advisories that cannot be forced to a patch
+without breaking the SDK are also considered unreachable on the stdio transport
+and near-zero real-world exploitability for this package.
+
 ## License
 
 MIT
