@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Node 18 is EOL and the dev toolchain (Vite 7, via Vitest) requires
+        # Node ^20.19 || >=22.12, so it is not a supported test target.
+        node-version: [20, 22]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      # The opt-in live test (test/live.test.ts) is skipped automatically when
+      # SYNTHETIC_API_KEY is not set, so CI runs unit + fuzz tests only.
+      - run: npm test
+
+  # Verify the published artifact: pack the tarball, install it elsewhere, and
+  # confirm the bin starts. Guards the publish contract (files array, bin path,
+  # shebang, prepare) that the build/test jobs do not exercise.
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Pack and smoke-test the published bin
+        run: |
+          set -euo pipefail
+          tarball="$(npm pack --silent)"
+          mkdir -p "$RUNNER_TEMP/consumer"
+          cd "$RUNNER_TEMP/consumer"
+          npm init -y >/dev/null
+          npm install "$GITHUB_WORKSPACE/$tarball" >/dev/null
+          installed="node_modules/@baanish/synthetic-search-mcp/dist/index.js"
+          test -f "$installed"
+          head -n1 "$installed" | grep -q '^#!/usr/bin/env node'
+          bin="node_modules/.bin/synthetic-search-mcp"
+          test -x "$bin"
+          # Drive a real MCP initialize over stdio and assert the server replies.
+          # timeout bounds the run since the server stays up after responding.
+          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}'
+          out="$(printf '%s\n' "$init" | timeout 10 "$bin" 2>/dev/null || true)"
+          echo "$out" | grep -q 'serverInfo'
