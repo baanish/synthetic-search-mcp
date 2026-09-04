@@ -14,7 +14,8 @@ Notes that are not obvious from those files:
 - Gates: `npm run typecheck` (`tsc --noEmit`, strict) and `npm test` (Vitest — unit,
   fetch-mocked integration, MCP transport tests covering both the 2025 era (in-memory
   pair) and the stateless 2026-07-28 revision plus legacy compatibility (in-process
-  `createMcpHandler`), and seeded fuzz tests). `npm run build`
+  `createMcpHandler`), a spawned-bin `serveStdio` entry test (requires dist/, which
+  prepare/CI build first), and seeded fuzz tests). `npm run build`
   emits `dist/`. No linter is configured. CI runs typecheck + build + test on Node 20/22.
 - `npm test` includes an opt-in live test that calls the real Synthetic API; it is skipped
   automatically unless `SYNTHETIC_API_KEY` is set (so CI runs unit/fuzz only).
