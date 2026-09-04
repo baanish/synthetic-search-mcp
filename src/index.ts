@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { McpServer } from "@modelcontextprotocol/server";
+import { McpServer, UnsupportedProtocolVersionError } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -81,11 +81,16 @@ function main(): void {
   // Out-of-band failures (e.g. a wire-transport start error) are reported only
   // through onerror and swallowed by the entry, so log them and mark the exit
   // code — otherwise a server whose transport failed to start would exit 0,
-  // reading as a clean run to a host.
+  // reading as a clean run to a host. UnsupportedProtocolVersionError is the
+  // exception: it is the spec's recoverable negotiation signal (the client
+  // falls back to the 2025 handshake and the connection continues), so a
+  // successful fallback session must still exit 0.
   const handle = serveStdio(() => createServer(), {
     onerror: (error) => {
       console.error(`synthetic-search-mcp: ${error.message}`);
-      process.exitCode = 1;
+      if (!(error instanceof UnsupportedProtocolVersionError)) {
+        process.exitCode = 1;
+      }
     },
   });
 

@@ -18,9 +18,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   server-side session state is required. README.md ("Protocol support")
   documents how the stdio entry serves both eras.
 - Graceful `SIGINT`/`SIGTERM` shutdown (closes the pinned instance and the
-  transport) and a non-zero exit code when the serving entry reports an
+  transport) and a non-zero exit code when the serving entry reports a fatal
   out-of-band failure, so a host can no longer misread a dead server as a
-  clean exit-0 run.
+  clean exit-0 run. Recoverable version-negotiation errors — an unsupported
+  `server/discover` probe answered with the corrective `-32022` error, after
+  which the client falls back to the 2025 handshake — still exit 0.
 - `npm test` now rebuilds `dist/` first (`pretest`), so the spawned-bin
   `serveStdio` tests always run against current source; the CI pack job's
   smoke test probes both the legacy `initialize` handshake and the stateless

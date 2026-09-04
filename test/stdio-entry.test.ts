@@ -1,9 +1,12 @@
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
+
+import { SERVER_NAME } from "../src/index.js";
 
 // The real shipped entry point: spawn the built bin and drive it over stdio,
 // as a host would. Requires dist/ — produced by `npm run build`, which the
@@ -65,5 +68,83 @@ describe("serveStdio entry (spawned dist/index.js)", () => {
 
     const { tools } = await c.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(["search", "search_quota"]);
+  }, 30_000);
+
+  // Regression: an unsupported-version server/discover probe is a recoverable
+  // negotiation error — the client falls back to the 2025 handshake — so the
+  // run must still exit 0. Driven over the raw wire (not an SDK client) so the
+  // child's exit code can be asserted.
+  it("exits 0 when an unsupported-version probe falls back to a successful legacy session", async () => {
+    const child = spawn(process.execPath, [bin], { env, stdio: ["pipe", "pipe", "ignore"] });
+
+    let buffer = "";
+    const queued: string[] = [];
+    const waiting: ((line: string) => void)[] = [];
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      buffer += chunk;
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        const resolve = waiting.shift();
+        if (resolve) resolve(line);
+        else queued.push(line);
+        newline = buffer.indexOf("\n");
+      }
+    });
+    const nextMessage = () =>
+      new Promise<string>((resolve) => {
+        const buffered = queued.shift();
+        if (buffered !== undefined) resolve(buffered);
+        else waiting.push(resolve);
+      });
+    const send = (message: unknown) =>
+      new Promise<void>((resolve, reject) => {
+        child.stdin.write(`${JSON.stringify(message)}\n`, (error) => (error ? reject(error) : resolve()));
+      });
+
+    // 1. Probe with a modern revision this server does not support.
+    await send({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "server/discover",
+      params: {
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2027-01-01",
+          "io.modelcontextprotocol/clientInfo": { name: "stdio-entry-test", version: "0.0.0" },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    });
+    const discoverReply = JSON.parse(await nextMessage()) as { error?: { code: number; data?: { supported?: string[] } } };
+    expect(discoverReply.error?.code).toBe(-32022);
+    expect(discoverReply.error?.data?.supported).toEqual(["2026-07-28"]);
+
+    // 2. Fall back to the 2025 handshake and use the connection normally.
+    await send({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "stdio-entry-test", version: "0.0.0" },
+      },
+    });
+    const initReply = JSON.parse(await nextMessage()) as { result?: { serverInfo?: { name?: string } } };
+    expect(initReply.result?.serverInfo?.name).toBe(SERVER_NAME);
+
+    await send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    await send({ jsonrpc: "2.0", id: 3, method: "tools/list" });
+    const toolsReply = JSON.parse(await nextMessage()) as { result?: { tools?: { name: string }[] } };
+    expect(toolsReply.result?.tools?.map((t) => t.name).sort()).toEqual(["search", "search_quota"]);
+
+    // 3. Normal shutdown (stdin EOF): the successful run exits 0.
+    const exitCode = await new Promise<number | null>((resolve) => {
+      child.on("exit", (code) => resolve(code));
+      child.stdin.end();
+    });
+    expect(exitCode).toBe(0);
   }, 30_000);
 });
