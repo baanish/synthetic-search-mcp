@@ -15,9 +15,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   protocol version, client identity, and client capabilities carried in the
   per-request `_meta` envelope. The server implements the spec-required
   `server/discover` RPC; protocol state travels on the request itself, so no
-  server-side session state is required. (The shipped stdio entry still pins
-  one instance per connection — a property of the one-process-per-client stdio
-  deployment, not of the protocol.)
+  server-side session state is required. README.md ("Protocol support")
+  documents how the stdio entry serves both eras.
+- Graceful `SIGINT`/`SIGTERM` shutdown (closes the pinned instance and the
+  transport) and a non-zero exit code when the serving entry reports an
+  out-of-band failure, so a host can no longer misread a dead server as a
+  clean exit-0 run.
+- `npm test` now rebuilds `dist/` first (`pretest`), so the spawned-bin
+  `serveStdio` tests always run against current source; the CI pack job's
+  smoke test probes both the legacy `initialize` handshake and the stateless
+  `server/discover` opening against the packed tarball.
 - 2025-era clients keep working from the same server factory: a connection
   that opens with the legacy `initialize` handshake is pinned to a 2025-era
   instance and served exactly as before (the stdio entry's default

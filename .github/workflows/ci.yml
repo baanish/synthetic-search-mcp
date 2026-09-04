@@ -65,3 +65,9 @@ jobs:
           init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}'
           out="$(printf '%s\n' "$init" | timeout 10 "$bin" 2>/dev/null || true)"
           echo "$out" | grep -q 'serverInfo'
+          # Drive the stateless 2026-07-28 opening too: a server/discover probe
+          # carrying the per-request _meta envelope, against the packed tarball.
+          disc='{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"ci","version":"0"},"io.modelcontextprotocol/clientCapabilities":{}}}}'
+          modern="$(printf '%s\n' "$disc" | timeout 10 "$bin" 2>/dev/null || true)"
+          echo "$modern" | grep -q 'serverInfo'
+          echo "$modern" | grep -q '2026-07-28'

@@ -6,8 +6,9 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 // The real shipped entry point: spawn the built bin and drive it over stdio,
-// as a host would. Requires dist/ — produced by `npm run build`, which both
-// `npm install` (prepare) and CI run before the tests.
+// as a host would. Requires dist/ — produced by `npm run build`, which the
+// `pretest` script runs before every `npm test` (as do `prepare` and CI), so
+// the spawned bin always matches the current source.
 const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.js");
 
 // Blank the API key in the child env so a developer's real .env key can never

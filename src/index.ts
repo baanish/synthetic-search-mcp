@@ -78,12 +78,29 @@ function main(): void {
   // Default legacy posture is 'serve': a 2025-era `initialize` opening pins the
   // connection to a 2025-era instance from the same factory, while a
   // 2026-07-28 opening is served statelessly (no handshake, no session).
-  // Out-of-band errors (e.g. a wire-transport start failure) are reported only
-  // through onerror — the entry drops them otherwise — so keep them on stderr
-  // like the old `failed to start` path.
-  serveStdio(() => createServer(), {
-    onerror: (error) => console.error(`synthetic-search-mcp: ${error.message}`),
+  // Out-of-band failures (e.g. a wire-transport start error) are reported only
+  // through onerror and swallowed by the entry, so log them and mark the exit
+  // code — otherwise a server whose transport failed to start would exit 0,
+  // reading as a clean run to a host.
+  const handle = serveStdio(() => createServer(), {
+    onerror: (error) => {
+      console.error(`synthetic-search-mcp: ${error.message}`);
+      process.exitCode = 1;
+    },
   });
+
+  // Graceful teardown on shutdown signals: close the pinned instance and the
+  // transport, then exit with whatever exit code the run earned (an onerror
+  // failure keeps its non-zero code). A second signal falls through to the
+  // default disposition instead of waiting on the close.
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    void handle.close().finally(() => process.exit(process.exitCode ?? 0));
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
 }
 
 /**

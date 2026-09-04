@@ -24,6 +24,7 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json",
+    "pretest": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "npm run build",

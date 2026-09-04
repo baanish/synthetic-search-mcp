@@ -33,8 +33,9 @@ The server speaks both MCP protocol eras from one factory:
   per-request `_meta` envelope. The server implements the spec-required
   `server/discover` RPC, so clients can probe it up front. Protocol state
   travels on the request itself, so no server-side session state is required:
-  served over HTTP, each request can be answered by a fresh instance from the
-  factory behind a plain load balancer.
+  if you wrap `createServer` in an HTTP entry (`createMcpHandler`), each
+  request can be answered by a fresh instance from the factory behind a plain
+  load balancer.
 - **2025-era (legacy):** a client that opens with the legacy `initialize`
   handshake is pinned to a 2025-era instance built from the same factory and
   served exactly as a hand-wired stdio server would be, so existing hosts
