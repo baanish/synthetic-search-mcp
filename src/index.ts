@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -15,12 +15,16 @@ import {
 } from "./synthetic.js";
 
 export const SERVER_NAME = "@baanish/synthetic-search-mcp";
-export const SERVER_VERSION = "2.0.0";
+export const SERVER_VERSION = "3.0.0";
 
 /**
  * Build an MCP server exposing the `search` tool. `options` are forwarded to the
  * search implementation, which lets tests inject a fetch stub / config without
  * touching the network.
+ *
+ * The returned instance is protocol-era agnostic: the v2 serving entries call
+ * this as a factory and serve both the stateless 2026-07-28 revision and
+ * 2025-era clients from it.
  */
 export function createServer(options: SearchOptions = {}): McpServer {
   const server = new McpServer({
@@ -32,13 +36,13 @@ export function createServer(options: SearchOptions = {}): McpServer {
     "search",
     {
       description: SEARCH_TOOL_DESCRIPTION,
-      inputSchema: {
+      inputSchema: z.object({
         query: z
           .string()
           .trim()
           .min(1, "Query is required.")
           .describe("The exact web search query to run."),
-      },
+      }),
       annotations: {
         title: "Synthetic Web Search",
         readOnlyHint: true,
@@ -64,16 +68,17 @@ export function createServer(options: SearchOptions = {}): McpServer {
   return server;
 }
 
-async function main(): Promise<void> {
+function main(): void {
   if (!process.env.SYNTHETIC_API_KEY?.trim()) {
     console.error(
       "synthetic-search-mcp: SYNTHETIC_API_KEY is not set. The server will start, but `search` and `search_quota` calls will fail until the variable is configured.",
     );
   }
 
-  const server = createServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  // Default legacy posture is 'serve': a 2025-era `initialize` opening pins the
+  // connection to a 2025-era instance from the same factory, while a
+  // 2026-07-28 opening is served statelessly (no handshake, no session).
+  serveStdio(() => createServer());
 }
 
 /**
@@ -98,12 +103,14 @@ export function isMainModule(importMetaUrl: string, invokedPath: string | undefi
 }
 
 if (isMainModule(import.meta.url, process.argv[1])) {
-  main().catch((error) => {
+  try {
+    main();
+  } catch (error) {
     console.error(
       `synthetic-search-mcp failed to start: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
     process.exit(1);
-  });
+  }
 }

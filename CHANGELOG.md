@@ -4,6 +4,43 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0]
+
+### Added
+
+- Support for the stateless MCP protocol revision
+  [2026-07-28](https://blog.modelcontextprotocol.io/posts/2026-07-28/): when a
+  client opens with the modern protocol the server answers every request
+  statelessly — no `initialize` handshake, no `Mcp-Session-Id`, with the
+  protocol version, client identity, and client capabilities carried in the
+  per-request `_meta` envelope. The server implements the spec-required
+  `server/discover` RPC, so any request can land on any instance with no
+  shared session state.
+- 2025-era clients keep working from the same server factory: a connection
+  that opens with the legacy `initialize` handshake is pinned to a 2025-era
+  instance and served exactly as before (the stdio entry's default
+  `legacy: 'serve'` posture). No configuration is required.
+- Tests now cover both protocol eras: the 2025-era in-memory transport tests,
+  plus stateless 2026-07-28 and legacy-compatibility tests driven through the
+  in-process `createMcpHandler` HTTP entry.
+
+### Changed
+
+- **Breaking:** migrated the runtime from `@modelcontextprotocol/sdk` (v1.x)
+  to the v2 SDK package `@modelcontextprotocol/server`; tests use
+  `@modelcontextprotocol/client`. Programmatic importers of `createServer`
+  now receive a v2 `McpServer`, and the stdio entry point is `serveStdio`
+  instead of `server.connect(new StdioServerTransport())`.
+- **Breaking:** `zod` bumped to `^4.2.0` (the v2 SDK's schema dialect) and the
+  `search` tool's `inputSchema` is now a `z.object(...)` Standard Schema
+  instead of a raw Zod shape.
+- Removed the npm `overrides` that pinned patched transitive versions of the
+  v1 SDK's web-middleware dependency tree (`hono`, `@hono/node-server`,
+  `path-to-regexp`, `fast-uri`, `ip-address`, `qs`): the v2
+  `@modelcontextprotocol/server` runtime dependency no longer pulls in any of
+  those packages, so the overrides and the advisory notes about them no longer
+  apply.
+
 ## [2.0.0]
 
 ### Security
