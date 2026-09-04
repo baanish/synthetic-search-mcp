@@ -14,8 +14,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   statelessly — no `initialize` handshake, no `Mcp-Session-Id`, with the
   protocol version, client identity, and client capabilities carried in the
   per-request `_meta` envelope. The server implements the spec-required
-  `server/discover` RPC, so any request can land on any instance with no
-  shared session state.
+  `server/discover` RPC; protocol state travels on the request itself, so no
+  server-side session state is required. (The shipped stdio entry still pins
+  one instance per connection — a property of the one-process-per-client stdio
+  deployment, not of the protocol.)
 - 2025-era clients keep working from the same server factory: a connection
   that opens with the legacy `initialize` handshake is pinned to a 2025-era
   instance and served exactly as before (the stdio entry's default

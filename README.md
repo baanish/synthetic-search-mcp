@@ -31,15 +31,19 @@ The server speaks both MCP protocol eras from one factory:
   statelessly — no `initialize` handshake, no `Mcp-Session-Id`, with the
   protocol version, client identity, and client capabilities carried in the
   per-request `_meta` envelope. The server implements the spec-required
-  `server/discover` RPC, so clients can probe it up front, and any request can
-  land on any instance with no shared session state.
+  `server/discover` RPC, so clients can probe it up front. Protocol state
+  travels on the request itself, so no server-side session state is required:
+  served over HTTP, each request can be answered by a fresh instance from the
+  factory behind a plain load balancer.
 - **2025-era (legacy):** a client that opens with the legacy `initialize`
   handshake is pinned to a 2025-era instance built from the same factory and
   served exactly as a hand-wired stdio server would be, so existing hosts
   (Claude Code, Cursor, VS Code, Codex CLI) keep working unchanged.
 
-The stdio entry picks the era once per connection, from how the client opens;
-no configuration is required.
+The stdio entry picks the era once per connection, from how the client opens,
+and pins one instance from the factory for the connection's lifetime — a
+property of the one-process-per-client stdio deployment, not of the protocol.
+No configuration is required.
 
 ## Requirements
 
