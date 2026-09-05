@@ -29,12 +29,20 @@ afterEach(async () => {
   await client?.close();
   client = null;
   // A failed assertion can abort a raw-wire test before it ends its spawned
-  // bin; kill any survivor so one test cannot leak a server into the suite.
+  // bin, and a stalled shutdown can ignore a signal it was already sent —
+  // child.killed only records that kill() was called, not that the child
+  // exited. Reap any survivor by exit state alone: gently first, then force,
+  // so one test can neither leak a server into the suite nor hang the
+  // worker on a child that refuses to die.
   for (const { child, exited } of spawnedBins.splice(0)) {
-    if (child.exitCode === null && child.signalCode === null && !child.killed) {
+    if (child.exitCode === null && child.signalCode === null) {
       child.kill();
+      const forceKill = setTimeout(() => child.kill("SIGKILL"), 500);
+      await exited;
+      clearTimeout(forceKill);
+    } else {
+      await exited;
     }
-    await exited;
   }
 });
 
