@@ -1,12 +1,14 @@
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { spawn, type ChildProcess } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SERVER_NAME } from "../src/index.js";
+import { NEGOTIATION_FABRIC_PREFIXES, SERVER_NAME } from "../src/index.js";
 
 // The real shipped entry point: spawn the built bin and drive it over stdio,
 // as a host would. Requires dist/ — produced by `npm run build`, which the
@@ -137,6 +139,22 @@ const modernToolsList = (id: number) => ({
 
 const toolNames = (message: string) =>
   (JSON.parse(message) as { result?: { tools?: { name: string }[] } }).result?.tools?.map((t) => t.name).sort();
+
+describe("negotiation-fabric classification", () => {
+  it("still finds every fabric report prefix in the pinned SDK dist", () => {
+    // isNegotiationFabric classifies SDK-minted plain Errors by message
+    // prefix, and the runtime dependency is pinned to the exact audited
+    // version. If an upgrade rewords a report, fail here with instructions
+    // instead of regressing a healthy session's exit code silently: re-audit
+    // NEGOTIATION_FABRIC_PREFIXES in src/index.ts against the new vocabulary.
+    // The lifecycle tests below pin the resulting behavior.
+    const sdkStdioPath = createRequire(import.meta.url).resolve("@modelcontextprotocol/server/stdio");
+    const sdkSource = readFileSync(sdkStdioPath, "utf8");
+    for (const prefix of NEGOTIATION_FABRIC_PREFIXES) {
+      expect(sdkSource, `reworded SDK report; re-audit NEGOTIATION_FABRIC_PREFIXES: "${prefix}"`).toContain(prefix);
+    }
+  });
+});
 
 describe("serveStdio entry (spawned dist/index.js)", () => {
   it("negotiates the stateless 2026-07-28 era via server/discover", async () => {

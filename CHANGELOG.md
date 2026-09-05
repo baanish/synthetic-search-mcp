@@ -40,8 +40,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the in-process `createMcpHandler` entry; spawned-bin `serveStdio` tests for
   era negotiation and tool dispatch on both pins; a raw-wire lifecycle matrix
   pinning the exit-code policy (idle signals, negotiation fallback, a rejected
-  late initialize, unparseable and schema-invalid frames); and an opt-in live
-  test that drives a real search over the stdio MCP entry.
+  late initialize, unparseable and schema-invalid frames); and opt-in live
+  tests that drive a real search through both era pins and `search_quota`
+  through the modern pin, all over the stdio MCP entry.
 
 ### Changed
 
@@ -53,6 +54,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Breaking:** `zod` bumped to `^4.2.0` (the v2 SDK's schema dialect) and the
   `search` tool's `inputSchema` is now a `z.object(...)` Standard Schema
   instead of a raw Zod shape.
+- `@modelcontextprotocol/server` is pinned to the exact audited version
+  (`2.0.0`, no caret range): the exit-code policy classifies SDK-minted
+  negotiation reports by their message text, so a patch release that reworded
+  them could silently regress a healthy session's exit code. Bumping the
+  dependency now requires re-running the spawned-bin lifecycle tests; a
+  vocabulary check fails first with re-audit instructions.
 - Removed the npm `overrides` that pinned patched transitive versions of the
   v1 SDK's web-middleware dependency tree (`hono`, `@hono/node-server`,
   `path-to-regexp`, `fast-uri`, `ip-address`, `qs`): the v2

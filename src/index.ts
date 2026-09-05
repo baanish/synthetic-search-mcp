@@ -23,9 +23,13 @@ export const SERVER_VERSION = "3.0.0";
 // companions. They are negotiation fabric, not failures, so a session that
 // recovers from them must still exit 0. UnsupportedProtocolVersionError is
 // the typed one; the rest are SDK-minted plain Errors, matched by their
-// stable message prefixes and pinned by the spawned-bin lifecycle tests in
-// test/stdio-entry.test.ts.
-const NEGOTIATION_FABRIC_PREFIXES = [
+// message prefixes. That coupling is defended two ways: the runtime
+// dependency is pinned to the exact audited version (no caret range), and
+// test/stdio-entry.test.ts asserts the prefixes still exist in the pinned
+// SDK's dist, failing with re-audit instructions before a reworded report
+// can regress a healthy session's exit code. The lifecycle tests pin the
+// resulting behavior.
+export const NEGOTIATION_FABRIC_PREFIXES = [
   "Discarded a notification claiming unsupported protocol revision",
   "Discarded a notification with a malformed envelope",
   "Discarded the probe instance",

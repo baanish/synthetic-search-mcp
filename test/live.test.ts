@@ -13,6 +13,21 @@ const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.j
 // available (loaded from .env by test/setup.ts); skipped in CI.
 const hasKey = Boolean(process.env.SYNTHETIC_API_KEY?.trim());
 
+/** Connect a live MCP client to the built bin, pinned to the given era. */
+async function connectLiveMcpClient(era: "modern" | "legacy"): Promise<Client> {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [bin],
+    env: { ...process.env } as Record<string, string>,
+    stderr: "ignore",
+  });
+  const options =
+    era === "modern" ? { versionNegotiation: { mode: "auto" as const } } : undefined;
+  const liveClient = new Client({ name: "live-mcp-test", version: "0.0.0" }, options);
+  await liveClient.connect(transport);
+  return liveClient;
+}
+
 describe.skipIf(!hasKey)("live Synthetic API", () => {
   it("returns well-formed results for a real query", async () => {
     const results = await searchSynthetic("model context protocol", { timeoutMs: 20_000 });
@@ -47,27 +62,43 @@ describe.skipIf(!hasKey)("live Synthetic API", () => {
 
   // End-to-end through the real shipped entry: the MCP client, the stdio
   // transport, era negotiation, and tool dispatch, against the live API.
-  it("serves a real search over the stdio MCP entry", async () => {
-    const transport = new StdioClientTransport({
-      command: process.execPath,
-      args: [bin],
-      env: { ...process.env } as Record<string, string>,
-      stderr: "ignore",
-    });
-    const liveClient = new Client({ name: "live-mcp-test", version: "0.0.0" }, {
-      versionNegotiation: { mode: "auto" },
-    });
-    await liveClient.connect(transport);
+  it.each(["modern", "legacy"] as const)(
+    "serves a real search over the stdio MCP entry (%s era)",
+    async (era) => {
+      const liveClient = await connectLiveMcpClient(era);
+      try {
+        expect(liveClient.getProtocolEra()).toBe(era);
+
+        const result = await liveClient.callTool({ name: "search", arguments: { query: "model context protocol" } });
+
+        expect(result.isError).toBeFalsy();
+        const content = result.content as { type: string; text: string }[];
+        const results = JSON.parse(content[0].text) as unknown[];
+        expect(Array.isArray(results)).toBe(true);
+        expect(results.length).toBeGreaterThan(0);
+      } finally {
+        await liveClient.close();
+      }
+    },
+    30_000,
+  );
+
+  it("serves a real search_quota over the stdio MCP entry (modern era)", async () => {
+    const liveClient = await connectLiveMcpClient("modern");
     try {
       expect(liveClient.getProtocolEra()).toBe("modern");
 
-      const result = await liveClient.callTool({ name: "search", arguments: { query: "model context protocol" } });
+      const result = await liveClient.callTool({ name: "search_quota", arguments: {} });
 
       expect(result.isError).toBeFalsy();
       const content = result.content as { type: string; text: string }[];
-      const results = JSON.parse(content[0].text) as unknown[];
-      expect(Array.isArray(results)).toBe(true);
-      expect(results.length).toBeGreaterThan(0);
+      const quota = JSON.parse(content[0].text) as {
+        hourly: { limit: number; remaining: number } | null;
+      };
+      expect(quota.hourly).not.toBeNull();
+      expect(quota.hourly!.limit).toBeGreaterThan(0);
+      expect(quota.hourly!.remaining).toBeGreaterThanOrEqual(0);
+      expect(quota.hourly!.remaining).toBeLessThanOrEqual(quota.hourly!.limit);
     } finally {
       await liveClient.close();
     }
