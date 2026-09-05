@@ -130,16 +130,36 @@ function main(): void {
 
   // Graceful teardown on shutdown signals: close the pinned instance and the
   // transport, then exit with whatever exit code the run earned (an onerror
-  // failure keeps its non-zero code). A second signal falls through to the
-  // default disposition instead of waiting on the close.
+  // failure keeps its non-zero code). A second signal while the close is
+  // still pending escalates to the default disposition, so a stuck close can
+  // always be terminated.
+  installShutdownHandlers(handle);
+}
+
+/**
+ * Install the SIGINT/SIGTERM teardown for a serveStdio handle. Exported for
+ * unit tests because the escalation path (a second signal arriving while the
+ * graceful close is still pending) is only observable in a child whose close
+ * actually stalls; tests drive it with a fake process and a never-settling
+ * close promise. The spawned-bin lifecycle tests cover the graceful paths.
+ */
+export function installShutdownHandlers(
+  handle: { close: () => Promise<unknown> },
+  target: NodeJS.Process = process,
+): void {
   let shuttingDown = false;
-  const shutdown = () => {
-    if (shuttingDown) return;
+  const shutdown = (signal: NodeJS.Signals) => {
+    if (shuttingDown) {
+      target.removeListener("SIGINT", shutdown);
+      target.removeListener("SIGTERM", shutdown);
+      target.kill(target.pid, signal);
+      return;
+    }
     shuttingDown = true;
-    void handle.close().finally(() => process.exit(process.exitCode ?? 0));
+    void handle.close().finally(() => target.exit(target.exitCode ?? 0));
   };
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
+  target.once("SIGINT", shutdown);
+  target.once("SIGTERM", shutdown);
 }
 
 /**

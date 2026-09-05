@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { spawn, type ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -8,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { NEGOTIATION_FABRIC_PREFIXES, SERVER_NAME } from "../src/index.js";
+import { installShutdownHandlers, NEGOTIATION_FABRIC_PREFIXES, SERVER_NAME } from "../src/index.js";
 
 // The real shipped entry point: spawn the built bin and drive it over stdio,
 // as a host would. Requires dist/ — produced by `npm run build`, which the
@@ -22,10 +23,19 @@ const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.j
 const env = { ...process.env, SYNTHETIC_API_KEY: "" } as Record<string, string>;
 
 let client: Client | null = null;
+const spawnedBins: { child: ChildProcess; exited: Promise<void> }[] = [];
 
 afterEach(async () => {
   await client?.close();
   client = null;
+  // A failed assertion can abort a raw-wire test before it ends its spawned
+  // bin; kill any survivor so one test cannot leak a server into the suite.
+  for (const { child, exited } of spawnedBins.splice(0)) {
+    if (child.exitCode === null && child.signalCode === null && !child.killed) {
+      child.kill();
+    }
+    await exited;
+  }
 });
 
 /** Connect an SDK client to the built bin through the serveStdio entry. */
@@ -56,11 +66,16 @@ function spawnBinWire(options: { stderr?: "ignore" | "pipe" } = {}): {
   wire: Wire;
   stderr: () => string;
   endInput: () => void;
+  exited: Promise<void>;
 } {
   const child = spawn(process.execPath, [bin], {
     env,
     stdio: ["pipe", "pipe", options.stderr === "pipe" ? "pipe" : "ignore"],
   });
+  // Resolves exactly once whether the child exits, is killed, or is reaped by
+  // the afterEach survivor cleanup.
+  const exited = new Promise<void>((resolve) => child.once("close", () => resolve()));
+  spawnedBins.push({ child, exited });
   // stdio[0] and stdio[1] are always pipes here; the spawn overload with a
   // non-literal stdio array types the streams as nullable.
   const stdin = child.stdin!;
@@ -106,16 +121,81 @@ function spawnBinWire(options: { stderr?: "ignore" | "pipe" } = {}): {
     },
     stderr: () => stderrText,
     endInput: () => stdin.end(),
+    exited,
   };
 }
 
-/** The child's exit code after `close` ends the session (EOF or signal). */
-function exitCodeOf(child: ChildProcess, close: () => void): Promise<number | null> {
+/**
+ * The child's termination after `close` ends the session. Resolves on the
+ * close event, not exit: stdio streams may still hold undrained output when
+ * exit fires, and the stderr assertions read them.
+ */
+function terminationOf(
+  child: ChildProcess,
+  close: () => void,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
   return new Promise((resolve) => {
-    child.once("exit", (code) => resolve(code));
+    child.once("close", (code, signal) => resolve({ code, signal }));
     close();
   });
 }
+
+async function exitCodeOf(child: ChildProcess, close: () => void): Promise<number | null> {
+  return (await terminationOf(child, close)).code;
+}
+
+/** Just the process surface installShutdownHandlers touches, for unit tests. */
+class FakeProcess extends EventEmitter {
+  pid = 4242;
+  exitCode: number | null = null;
+  killedWith: string | null = null;
+  exitedWith: number | null = null;
+  kill(pid: number, signal: string): boolean {
+    this.killedWith = signal;
+    return pid === this.pid;
+  }
+  exit(code?: number): void {
+    this.exitedWith = code ?? 0;
+  }
+}
+
+describe("installShutdownHandlers", () => {
+  it("exits with the earned code once the graceful close settles", async () => {
+    const target = new FakeProcess();
+    target.exitCode = 1; // earned by an earlier onerror report
+    let resolveClose: (() => void) | undefined;
+    installShutdownHandlers(
+      { close: () => new Promise<void>((resolve) => (resolveClose = resolve)) },
+      target as unknown as NodeJS.Process,
+    );
+
+    target.emit("SIGTERM", "SIGTERM");
+    expect(target.exitedWith).toBeNull(); // still closing
+
+    resolveClose!();
+    await new Promise((resolve) => setTimeout(resolve, 0)); // let .finally run
+    expect(target.exitedWith).toBe(1);
+    expect(target.killedWith).toBeNull();
+  });
+
+  it("escalates a second signal to the default disposition while the close is pending", () => {
+    const target = new FakeProcess();
+    installShutdownHandlers(
+      { close: () => new Promise<never>(() => {}) }, // never settles
+      target as unknown as NodeJS.Process,
+    );
+
+    target.emit("SIGINT", "SIGINT");
+    expect(target.killedWith).toBeNull();
+    expect(target.exitedWith).toBeNull();
+
+    target.emit("SIGTERM", "SIGTERM");
+    expect(target.killedWith).toBe("SIGTERM");
+    expect(target.exitedWith).toBeNull();
+    expect(target.listenerCount("SIGINT")).toBe(0);
+    expect(target.listenerCount("SIGTERM")).toBe(0);
+  });
+});
 
 const envelopeMeta = (version: string) => ({
   "io.modelcontextprotocol/protocolVersion": version,
@@ -278,10 +358,34 @@ describe("serveStdio lifecycle (raw wire, spawned bin)", () => {
 
   it("exits 0 on idle SIGTERM and SIGINT", async () => {
     for (const signal of ["SIGTERM", "SIGINT"] as const) {
-      const { child } = spawnBinWire();
-      // Let the child finish startup before signaling.
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      const { child, wire } = spawnBinWire();
+      // A discover round-trip proves startup finished: the signal handlers
+      // are registered in the same synchronous main() body that starts
+      // serving, so a reply means they are already installed. A fixed delay
+      // would race slow CI.
+      await wire.send(discoverRequest("2026-07-28", 1));
+      expect(JSON.parse(await wire.nextMessage())).toHaveProperty("result");
       expect(await exitCodeOf(child, () => child.kill(signal))).toBe(0);
+    }
+  }, 30_000);
+
+  it("terminates promptly when shutdown signals overlap", async () => {
+    const { child, wire } = spawnBinWire();
+    await wire.send(discoverRequest("2026-07-28", 1));
+    expect(JSON.parse(await wire.nextMessage())).toHaveProperty("result");
+
+    // Back-to-back signals: either the graceful close finishes first (exit 0)
+    // or the second signal escalates to the default disposition (death by
+    // signal). Both are prompt, correct terminations — which one wins is a
+    // race — so the unit tests above pin the escalation semantics exactly.
+    const { code, signal } = await terminationOf(child, () => {
+      child.kill("SIGTERM");
+      child.kill("SIGINT");
+    });
+    if (code === null) {
+      expect(["SIGINT", "SIGTERM"]).toContain(signal);
+    } else {
+      expect(code).toBe(0);
     }
   }, 30_000);
 

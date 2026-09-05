@@ -18,14 +18,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   server-side session state is required. README.md ("Protocol support")
   documents how the stdio entry serves both eras.
 - Graceful `SIGINT`/`SIGTERM` shutdown (closes the pinned instance and the
-  transport) and a non-zero exit code reserved for fatal out-of-band entry
-  failures (wire-transport errors, invalid frames, pre-negotiation protocol
-  violations), so a host can no longer misread a dead server as a clean exit-0
-  run. Negotiation fabric — an unsupported `server/discover` probe, a legacy
-  request on a modern-pinned connection, malformed-envelope notifications —
-  is answered in-band with the corrective `-32022` error while the connection
-  keeps serving, and still exits 0. Stderr reports are single-line and
-  length-capped (schema-validation reports arrive as multi-line Zod dumps).
+  transport; a second signal while the close is pending escalates to the
+  default disposition, so a stuck close can always be terminated) and a
+  non-zero exit code reserved for fatal out-of-band entry failures
+  (wire-transport errors, invalid frames, pre-negotiation protocol
+  violations), so a host can no longer misread a dead server as a clean
+  exit-0 run. Negotiation fabric still exits 0: a rejected request (an
+  unsupported `server/discover` probe, a legacy request on a modern-pinned
+  connection) is answered in-band with the corrective `-32022` error, while
+  malformed-envelope notifications — which cannot receive an error response —
+  are discarded with a stderr report; the connection keeps serving either
+  way. Stderr reports are single-line and length-capped (schema-validation
+  reports arrive as multi-line Zod dumps).
 - `npm test` now rebuilds `dist/` first (`pretest`), so the spawned-bin
   `serveStdio` tests always run against current source; the CI pack job's
   smoke test probes both the legacy `initialize` handshake and the stateless
@@ -40,7 +44,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the in-process `createMcpHandler` entry; spawned-bin `serveStdio` tests for
   era negotiation and tool dispatch on both pins; a raw-wire lifecycle matrix
   pinning the exit-code policy (idle signals, negotiation fallback, a rejected
-  late initialize, unparseable and schema-invalid frames); and opt-in live
+  late initialize, second-signal escalation, unparseable and schema-invalid
+  frames); and opt-in live
   tests that drive a real search through both era pins and `search_quota`
   through the modern pin, all over the stdio MCP entry.
 
