@@ -31,7 +31,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   way. Stderr reports are single-line and length-capped (schema-validation
   reports arrive as multi-line Zod dumps).
 - `npm test` now rebuilds `dist/` first (`pretest`), so the spawned-bin
-  `serveStdio` tests always run against current source; the CI pack job's
+  `serveStdio` tests always run against current source — `npm run test:watch`
+  builds once at session start for the same reason (a rebuild during the
+  watch session would need a second watcher); the CI pack job's
   smoke test probes both the legacy `initialize` handshake and the stateless
   `server/discover` opening against the packed tarball, asserting a JSON-RPC
   result and failing on a hang or non-zero exit.
