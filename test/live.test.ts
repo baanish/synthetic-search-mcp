@@ -1,6 +1,13 @@
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import { fetchSearchQuota, searchSynthetic } from "../src/synthetic.js";
+
+const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.js");
 
 // Opt-in smoke test against the real Synthetic API. Runs only when a key is
 // available (loaded from .env by test/setup.ts); skipped in CI.
@@ -35,6 +42,34 @@ describe.skipIf(!hasKey)("live Synthetic API", () => {
     expect(quota.hourly!.remaining).toBeGreaterThanOrEqual(0);
     if (quota.hourly!.renewsAt !== null) {
       expect(Number.isNaN(Date.parse(quota.hourly!.renewsAt))).toBe(false);
+    }
+  }, 30_000);
+
+  // End-to-end through the real shipped entry: the MCP client, the stdio
+  // transport, era negotiation, and tool dispatch, against the live API.
+  it("serves a real search over the stdio MCP entry", async () => {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [bin],
+      env: { ...process.env } as Record<string, string>,
+      stderr: "ignore",
+    });
+    const liveClient = new Client({ name: "live-mcp-test", version: "0.0.0" }, {
+      versionNegotiation: { mode: "auto" },
+    });
+    await liveClient.connect(transport);
+    try {
+      expect(liveClient.getProtocolEra()).toBe("modern");
+
+      const result = await liveClient.callTool({ name: "search", arguments: { query: "model context protocol" } });
+
+      expect(result.isError).toBeFalsy();
+      const content = result.content as { type: string; text: string }[];
+      const results = JSON.parse(content[0].text) as unknown[];
+      expect(Array.isArray(results)).toBe(true);
+      expect(results.length).toBeGreaterThan(0);
+    } finally {
+      await liveClient.close();
     }
   }, 30_000);
 });

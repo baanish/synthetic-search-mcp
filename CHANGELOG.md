@@ -18,22 +18,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   server-side session state is required. README.md ("Protocol support")
   documents how the stdio entry serves both eras.
 - Graceful `SIGINT`/`SIGTERM` shutdown (closes the pinned instance and the
-  transport) and a non-zero exit code when the serving entry reports a fatal
-  out-of-band failure, so a host can no longer misread a dead server as a
-  clean exit-0 run. Recoverable version-negotiation errors — an unsupported
-  `server/discover` probe answered with the corrective `-32022` error, after
-  which the client falls back to the 2025 handshake — still exit 0.
+  transport) and a non-zero exit code reserved for fatal out-of-band entry
+  failures (wire-transport errors, invalid frames, pre-negotiation protocol
+  violations), so a host can no longer misread a dead server as a clean exit-0
+  run. Negotiation fabric — an unsupported `server/discover` probe, a legacy
+  request on a modern-pinned connection, malformed-envelope notifications —
+  is answered in-band with the corrective `-32022` error while the connection
+  keeps serving, and still exits 0. Stderr reports are single-line and
+  length-capped (schema-validation reports arrive as multi-line Zod dumps).
 - `npm test` now rebuilds `dist/` first (`pretest`), so the spawned-bin
   `serveStdio` tests always run against current source; the CI pack job's
   smoke test probes both the legacy `initialize` handshake and the stateless
-  `server/discover` opening against the packed tarball.
+  `server/discover` opening against the packed tarball, asserting a JSON-RPC
+  result and failing on a hang or non-zero exit.
 - 2025-era clients keep working from the same server factory: a connection
   that opens with the legacy `initialize` handshake is pinned to a 2025-era
   instance and served exactly as before (the stdio entry's default
   `legacy: 'serve'` posture). No configuration is required.
-- Tests now cover both protocol eras: the 2025-era in-memory transport tests,
-  plus stateless 2026-07-28 and legacy-compatibility tests driven through the
-  in-process `createMcpHandler` HTTP entry.
+- Tests now cover both protocol eras through every layer: 2025-era in-memory
+  transport tests; stateless 2026-07-28 and legacy-compatibility tests through
+  the in-process `createMcpHandler` entry; spawned-bin `serveStdio` tests for
+  era negotiation and tool dispatch on both pins; a raw-wire lifecycle matrix
+  pinning the exit-code policy (idle signals, negotiation fallback, a rejected
+  late initialize, unparseable and schema-invalid frames); and an opt-in live
+  test that drives a real search over the stdio MCP entry.
 
 ### Changed
 

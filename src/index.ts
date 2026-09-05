@@ -17,6 +17,37 @@ import {
 export const SERVER_NAME = "@baanish/synthetic-search-mcp";
 export const SERVER_VERSION = "3.0.0";
 
+// Reports the serving entry emits while a connection keeps serving: the
+// in-band corrective -32022 answers (an unsupported-version probe, a legacy
+// request on a modern-pinned connection) and their notification/probe
+// companions. They are negotiation fabric, not failures, so a session that
+// recovers from them must still exit 0. UnsupportedProtocolVersionError is
+// the typed one; the rest are SDK-minted plain Errors, matched by their
+// stable message prefixes and pinned by the spawned-bin lifecycle tests in
+// test/stdio-entry.test.ts.
+const NEGOTIATION_FABRIC_PREFIXES = [
+  "Discarded a notification claiming unsupported protocol revision",
+  "Discarded a notification with a malformed envelope",
+  "Discarded the probe instance",
+  "Rejected 2025-era request",
+];
+
+function isNegotiationFabric(error: Error): boolean {
+  return (
+    error instanceof UnsupportedProtocolVersionError ||
+    NEGOTIATION_FABRIC_PREFIXES.some((prefix) => error.message.startsWith(prefix))
+  );
+}
+
+/**
+ * One-line, length-capped error text: schema-validation reports arrive as
+ * multi-line Zod issue dumps, which are noise on a host's stderr.
+ */
+function summarizeErrorText(error: Error): string {
+  const oneLine = error.message.replace(/\s+/g, " ").trim();
+  return oneLine.length > 300 ? `${oneLine.slice(0, 300)}...` : oneLine;
+}
+
 /**
  * Build an MCP server exposing the `search` tool. `options` are forwarded to the
  * search implementation, which lets tests inject a fetch stub / config without
@@ -81,14 +112,13 @@ function main(): void {
   // Out-of-band failures (e.g. a wire-transport start error) are reported only
   // through onerror and swallowed by the entry, so log them and mark the exit
   // code — otherwise a server whose transport failed to start would exit 0,
-  // reading as a clean run to a host. UnsupportedProtocolVersionError is the
-  // exception: it is the spec's recoverable negotiation signal (the client
-  // falls back to the 2025 handshake and the connection continues), so a
-  // successful fallback session must still exit 0.
+  // reading as a clean run to a host. Negotiation fabric is the exception: it
+  // is answered in-band or discarded while the connection keeps serving, so a
+  // successful session must still exit 0.
   const handle = serveStdio(() => createServer(), {
     onerror: (error) => {
-      console.error(`synthetic-search-mcp: ${error.message}`);
-      if (!(error instanceof UnsupportedProtocolVersionError)) {
+      console.error(`synthetic-search-mcp: ${summarizeErrorText(error)}`);
+      if (!isNegotiationFabric(error)) {
         process.exitCode = 1;
       }
     },

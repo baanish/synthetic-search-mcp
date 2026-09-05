@@ -60,14 +60,18 @@ jobs:
           head -n1 "$installed" | grep -q '^#!/usr/bin/env node'
           bin="node_modules/.bin/synthetic-search-mcp"
           test -x "$bin"
-          # Drive a real MCP initialize over stdio and assert the server replies.
-          # timeout bounds the run since the server stays up after responding.
+          # Drive a real MCP initialize over stdio and assert the server replies
+          # with a result. No `|| true`: a hang (timeout 124) or a non-zero
+          # exit fails the step, and the '"result"' grep proves the answer is a
+          # JSON-RPC result, not an error response.
           init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}'
-          out="$(printf '%s\n' "$init" | timeout 10 "$bin" 2>/dev/null || true)"
+          out="$(printf '%s\n' "$init" | timeout 10 "$bin" 2>/dev/null)"
+          echo "$out" | grep -q '"result"'
           echo "$out" | grep -q 'serverInfo'
           # Drive the stateless 2026-07-28 opening too: a server/discover probe
           # carrying the per-request _meta envelope, against the packed tarball.
           disc='{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"ci","version":"0"},"io.modelcontextprotocol/clientCapabilities":{}}}}'
-          modern="$(printf '%s\n' "$disc" | timeout 10 "$bin" 2>/dev/null || true)"
-          echo "$modern" | grep -q 'serverInfo'
+          modern="$(printf '%s\n' "$disc" | timeout 10 "$bin" 2>/dev/null)"
+          echo "$modern" | grep -q '"result"'
+          echo "$modern" | grep -q 'supportedVersions'
           echo "$modern" | grep -q '2026-07-28'
