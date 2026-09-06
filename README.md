@@ -20,7 +20,31 @@ The server is designed for local MCP clients such as Claude Code, Codex CLI, Cur
 - Bounded requests: a 30s timeout and a 10 MB response cap prevent hangs
 - Drops results whose URL is not `http(s):`
 - Reads credentials from `SYNTHETIC_API_KEY`
+- Speaks the stateless 2026-07-28 MCP protocol revision while still serving 2025-era clients from the same server factory
 - Runs over stdio for local MCP integrations
+
+## Protocol support
+
+The server speaks both MCP protocol eras from one factory:
+
+- **2026-07-28 (stateless):** a modern client's opening request is served
+  statelessly — no `initialize` handshake, no `Mcp-Session-Id`, with the
+  protocol version, client identity, and client capabilities carried in the
+  per-request `_meta` envelope. The server implements the spec-required
+  `server/discover` RPC, so clients can probe it up front. Protocol state
+  travels on the request itself, so no server-side session state is required:
+  if you wrap `createServer` in an HTTP entry (`createMcpHandler`), each
+  request can be answered by a fresh instance from the factory behind a plain
+  load balancer.
+- **2025-era (legacy):** a client that opens with the legacy `initialize`
+  handshake is pinned to a 2025-era instance built from the same factory and
+  served exactly as a hand-wired stdio server would be, so existing hosts
+  (Claude Code, Cursor, VS Code, Codex CLI) keep working unchanged.
+
+The stdio entry picks the era once per connection, from how the client opens,
+and pins one instance from the factory for the connection's lifetime — a
+property of the one-process-per-client stdio deployment, not of the protocol.
+No configuration is required.
 
 ## Requirements
 
@@ -202,7 +226,7 @@ SYNTHETIC_API_KEY=your_api_key_here npm run dev
 
 ```bash
 npm run typecheck   # tsc --noEmit over src + tests
-npm test            # vitest: unit, integration, and fuzz tests
+npm test            # vitest: unit, integration (both MCP protocol eras), and fuzz tests
 ```
 
 The suite includes an opt-in live smoke test that calls the real Synthetic API.
@@ -220,28 +244,15 @@ tool output.
 
 ### Transitive dependency advisories
 
-`@modelcontextprotocol/sdk` is a production runtime dependency. It pulls in HTTP
-middleware packages (`hono`, `@hono/node-server`, `express` → `path-to-regexp`,
-`ajv` → `fast-uri`, `qs`) that carry published CVEs. These advisories are
-**production-transitive**, but this server uses **stdio only** and never invokes
-the affected web-middleware code paths (serveStatic, cookies, JSX SSR, JWT
-verify, toSSG, cache, ipRestriction, query parsing, and similar). They are
-therefore unreachable here regardless of the installed version — and this
-unreachability, not a version pin, is what protects consumers of the published
-CLI.
+The runtime MCP dependency is the v2 SDK package `@modelcontextprotocol/server`,
+whose tree is just `@modelcontextprotocol/core` and `zod` — it pulls in no HTTP
+web-middleware packages. The npm `overrides` this repo previously carried (for
+`hono`, `@hono/node-server`, `path-to-regexp`, `fast-uri`, `ip-address`, and
+`qs`, all pulled in transitively by the v1 `@modelcontextprotocol/sdk`) are
+therefore removed, and none of those advisories appear in this repository's
+dependency tree anymore.
 
-We keep the SDK on its latest release (the one lever that actually propagates to
-consumers) and apply npm `overrides` to pin patched transitive versions. Note
-that npm only honors `overrides` from the **root** project's `package.json`:
-they pin *this repository's* tree — so `npm ci`, CI, and the packed smoke test
-run on patched versions and `npm audit` stays clean — but npm **ignores them
-when this package is installed as a dependency or global CLI**. We deliberately
-do not ship an `npm-shrinkwrap.json` to force the tree onto consumers: it would
-freeze every transitive dependency at publish time (and could pin consumers to a
-*future* vulnerable version), a worse trade than relying on the unreachability
-above.
-
-Remaining local advisory after overrides:
+Remaining local advisory:
 
 - **esbuild** (dev-only, via `tsx`): affects the esbuild development server on
   Windows only; not used at runtime and not published in the npm tarball.
