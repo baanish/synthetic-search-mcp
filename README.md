@@ -2,6 +2,12 @@
 
 A minimal [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes [Synthetic](https://synthetic.new) web search over stdio.
 
+Synthetic wraps Exa search under a zero data retention (ZDR) contract. The search
+budget is **200 queries per hour**. Synthetic does not forward many of Exa's
+upstream URL parameters, so filtering and other search controls are very limited.
+This MCP server accepts only a query string for search; it does not expose Exa's
+additional filtering parameters.
+
 It provides two MCP tools:
 
 - `search`: run a web search against Synthetic and return a small set of results with `url`, `title`, `published`, and a truncated page-text snippet.
@@ -13,7 +19,7 @@ The server is designed for local MCP clients such as Claude Code, Codex CLI, Cur
 
 - Two focused tools: `search` and `search_quota`
 - Fresh web results from Synthetic's `/v2/search` API
-- Quota visibility via Synthetic's `/v2/quotas` (search is capped per hour)
+- Quota visibility via Synthetic's `/v2/quotas` (200 queries per hour)
 - Clear `429` rate-limit errors, including `Retry-After` when provided
 - Truncates extracted page text to about 2000 characters per result
 - Repairs malformed control characters when `JSON.parse` fails, instead of giving up
@@ -176,6 +182,10 @@ Output:
 Notes:
 
 - Synthetic only supports a single `query` parameter.
+- Synthetic wraps Exa search under a zero data retention (ZDR) contract, but does
+  not forward many upstream Exa URL parameters. Filtering and other search
+  controls are very limited; additional Exa parameters are not exposed by this tool.
+- The search budget is 200 queries per hour; use `search_quota` to check remaining budget.
 - Result text is truncated to keep MCP context manageable.
 - `published` may be `null` when the source does not provide a date.
 
@@ -188,9 +198,9 @@ Output:
 ```json
 {
   "hourly": {
-    "limit": 250,
+    "limit": 200,
     "requests": 32,
-    "remaining": 218,
+    "remaining": 168,
     "renewsAt": "2026-06-26T21:00:00.000Z"
   },
   "subscription": {
@@ -204,7 +214,8 @@ Output:
 
 Notes:
 
-- Search is rate-limited per hour; `hourly` reflects the current window.
+- The search budget is 200 queries per hour; `hourly` reflects the current
+  API-reported limit, usage, and reset time.
 - `remaining` is derived as `limit - requests` (clamped at 0).
 - A window is `null` if Synthetic does not report it.
 - Checking the quota does not count against your search limit.
