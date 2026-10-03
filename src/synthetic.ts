@@ -24,10 +24,10 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
 export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 export const SEARCH_TOOL_DESCRIPTION =
-  "Search the public web with Synthetic. Use this when you need fresh web results with extracted page text for a specific query. Input only supports a single query string, and the response returns a small set of relevant results with URLs, titles, published dates, and truncated text snippets.";
+  "Search the public web with Synthetic, a wrapper for Exa search under a zero data retention (ZDR) contract. The search budget is 200 queries per hour; check remaining budget with `search_quota`. Synthetic does not forward many upstream Exa URL parameters, so filtering and other search controls are very limited. This tool accepts only a query string and does not expose additional Exa filtering parameters. Use it for fresh web results with URLs, titles, published dates, and truncated page-text snippets.";
 
 export const SEARCH_QUOTA_TOOL_DESCRIPTION =
-  "Check how much Synthetic web search quota remains. Search is capped per hour; this returns the hourly search limit, requests used so far, remaining requests, and when the window resets (plus the subscription-period quota). Use it to decide whether you still have search budget before calling `search`. Checking the quota does not itself count against the limit.";
+  "Check how much Synthetic web search quota remains. The search budget is 200 queries per hour. This returns the current API-reported hourly search limit, requests used so far, remaining requests, and when the window resets (plus the subscription-period quota). Use it to decide whether you still have search budget before calling `search`. Checking the quota does not itself count against the limit.";
 
 export type SyntheticSearchResult = {
   url: string;
